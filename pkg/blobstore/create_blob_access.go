@@ -30,28 +30,23 @@ func CreateBlobAccessObjectsFromConfig(configurationFile string) (BlobAccess, Bl
 	}
 
 	// Create two stores based on definitions in configuration.
-	contentAddressableStorage, err := createBlobAccess(config.ContentAddressableStorage, "cas", util.KeyDigestWithoutInstance)
+	contentAddressableStorage, err := createBlobAccess(config.ContentAddressableStorage, "cas", util.DigestKeyWithoutInstance)
 	if err != nil {
 		return nil, nil, err
 	}
-	actionCache, err := createBlobAccess(config.ActionCache, "ac", util.KeyDigestWithInstance)
+	actionCache, err := createBlobAccess(config.ActionCache, "ac", util.DigestKeyWithInstance)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Stack some additional mandatory layers on top to protect
-	// against data corruption and misuse.
+	// Stack a mandatory layer on top to protect against data corruption.
 	contentAddressableStorage = NewMetricsBlobAccess(
-		NewValidDigestRequiringBlobAccess(
-			NewMerkleBlobAccess(contentAddressableStorage)),
-		"cas_valid_digest_requiring")
-	actionCache = NewMetricsBlobAccess(
-		NewValidDigestRequiringBlobAccess(actionCache),
-		"ac_valid_digest_requiring")
+		NewMerkleBlobAccess(contentAddressableStorage),
+		"cas_merkle")
 	return contentAddressableStorage, actionCache, nil
 }
 
-func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, digestKeyer util.DigestKeyer) (BlobAccess, error) {
+func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, digestKeyFormat util.DigestKeyFormat) (BlobAccess, error) {
 	var implementation BlobAccess
 	var backendType string
 	switch backend := config.Backend.(type) {
@@ -63,7 +58,7 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 					Addr: backend.Redis.Endpoint,
 					DB:   int(backend.Redis.Db),
 				}),
-			digestKeyer)
+			digestKeyFormat)
 	case *pb.BlobAccessConfiguration_Remote:
 		backendType = "remote"
 		implementation = NewRemoteBlobAccess(backend.Remote.Address, storageType)
@@ -91,14 +86,14 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 			uploader,
 			&backend.S3.Bucket,
 			backend.S3.KeyPrefix,
-			digestKeyer)
+			digestKeyFormat)
 	case *pb.BlobAccessConfiguration_SizeDistinguishing:
 		backendType = "size_distinguishing"
-		small, err := createBlobAccess(backend.SizeDistinguishing.Small, storageType, digestKeyer)
+		small, err := createBlobAccess(backend.SizeDistinguishing.Small, storageType, digestKeyFormat)
 		if err != nil {
 			return nil, err
 		}
-		large, err := createBlobAccess(backend.SizeDistinguishing.Large, storageType, digestKeyer)
+		large, err := createBlobAccess(backend.SizeDistinguishing.Large, storageType, digestKeyFormat)
 		if err != nil {
 			return nil, err
 		}

@@ -8,7 +8,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,33 +26,29 @@ func convertS3Error(err error) error {
 }
 
 type s3BlobAccess struct {
-	s3                  *s3.S3
-	uploader            *s3manager.Uploader
-	bucketName          *string
-	underlyingBlobKeyer util.DigestKeyer
-	keyPrefix           string
+	s3            *s3.S3
+	uploader      *s3manager.Uploader
+	bucketName    *string
+	blobKeyFormat util.DigestKeyFormat
+	keyPrefix     string
 }
 
 // NewS3BlobAccess creates a BlobAccess that uses an S3 bucket as its backing
 // store.
-func NewS3BlobAccess(s3 *s3.S3, uploader *s3manager.Uploader, bucketName *string, keyPrefix string, blobKeyer util.DigestKeyer) BlobAccess {
+func NewS3BlobAccess(s3 *s3.S3, uploader *s3manager.Uploader, bucketName *string, keyPrefix string, blobKeyFormat util.DigestKeyFormat) BlobAccess {
 	return &s3BlobAccess{
-		s3:                  s3,
-		uploader:            uploader,
-		bucketName:          bucketName,
-		underlyingBlobKeyer: blobKeyer,
-		keyPrefix:           keyPrefix,
+		s3:            s3,
+		uploader:      uploader,
+		bucketName:    bucketName,
+		blobKeyFormat: blobKeyFormat,
+		keyPrefix:     keyPrefix,
 	}
 }
 
-func (ba *s3BlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
-	key, err := ba.blobKeyer(instance, digest)
-	if err != nil {
-		return util.NewErrorReader(err)
-	}
+func (ba *s3BlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
 	result, err := ba.s3.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: ba.bucketName,
-		Key:    &key,
+		Key:    ba.getKey(digest),
 	})
 	if err != nil {
 		return util.NewErrorReader(convertS3Error(err))
@@ -61,42 +56,30 @@ func (ba *s3BlobAccess) Get(ctx context.Context, instance string, digest *remote
 	return result.Body
 }
 
-func (ba *s3BlobAccess) Put(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+func (ba *s3BlobAccess) Put(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 	defer r.Close()
-	key, err := ba.blobKeyer(instance, digest)
-	if err != nil {
-		return err
-	}
-	_, err = ba.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
+	_, err := ba.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 		Bucket: ba.bucketName,
-		Key:    &key,
+		Key:    ba.getKey(digest),
 		Body:   r,
 	})
 	return convertS3Error(err)
 }
 
-func (ba *s3BlobAccess) Delete(ctx context.Context, instance string, digest *remoteexecution.Digest) error {
-	key, err := ba.blobKeyer(instance, digest)
-	if err != nil {
-		return err
-	}
-	_, err = ba.s3.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+func (ba *s3BlobAccess) Delete(ctx context.Context, digest *util.Digest) error {
+	_, err := ba.s3.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
 		Bucket: ba.bucketName,
-		Key:    &key,
+		Key:    ba.getKey(digest),
 	})
 	return convertS3Error(err)
 }
 
-func (ba *s3BlobAccess) FindMissing(ctx context.Context, instance string, digests []*remoteexecution.Digest) ([]*remoteexecution.Digest, error) {
-	var missing []*remoteexecution.Digest
+func (ba *s3BlobAccess) FindMissing(ctx context.Context, digests []*util.Digest) ([]*util.Digest, error) {
+	var missing []*util.Digest
 	for _, digest := range digests {
-		key, err := ba.blobKeyer(instance, digest)
-		if err != nil {
-			return nil, err
-		}
-		_, err = ba.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		_, err := ba.s3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: ba.bucketName,
-			Key:    &key,
+			Key:    ba.getKey(digest),
 		})
 		if err != nil {
 			err = convertS3Error(err)
@@ -110,10 +93,7 @@ func (ba *s3BlobAccess) FindMissing(ctx context.Context, instance string, digest
 	return missing, nil
 }
 
-func (ba *s3BlobAccess) blobKeyer(instance string, digest *remoteexecution.Digest) (string, error) {
-	key, err := ba.underlyingBlobKeyer(instance, digest)
-	if err != nil {
-		return "", err
-	}
-	return ba.keyPrefix + key, nil
+func (ba *s3BlobAccess) getKey(digest *util.Digest) *string {
+	s := ba.keyPrefix + digest.GetKey(ba.blobKeyFormat)
+	return &s
 }

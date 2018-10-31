@@ -10,10 +10,10 @@ import (
 // ContentAddressableStorage provides typed access to a Bazel Content
 // Addressable Storage (CAS).
 type ContentAddressableStorage interface {
-	GetAction(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Action, error)
-	GetCommand(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Command, error)
-	GetDirectory(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Directory, error)
-	GetFile(ctx context.Context, instance string, digest *remoteexecution.Digest, outputPath string, isExecutable bool) error
-	PutFile(ctx context.Context, instance string, path string, digestFormat util.DigestFormat) (*remoteexecution.Digest, bool, error)
-	PutTree(ctx context.Context, instance string, tree *remoteexecution.Tree, digestFormat util.DigestFormat) (*remoteexecution.Digest, error)
+	GetAction(ctx context.Context, digest *util.Digest) (*remoteexecution.Action, error)
+	GetCommand(ctx context.Context, digest *util.Digest) (*remoteexecution.Command, error)
+	GetDirectory(ctx context.Context, digest *util.Digest) (*remoteexecution.Directory, error)
+	GetFile(ctx context.Context, digest *util.Digest, outputPath string, isExecutable bool) error
+	PutFile(ctx context.Context, path string, parentDigest *util.Digest) (*util.Digest, bool, error)
+	PutTree(ctx context.Context, tree *remoteexecution.Tree, parentDigest *util.Digest) (*util.Digest, error)
 }

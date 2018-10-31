@@ -26,8 +26,8 @@ func NewBlobAccessContentAddressableStorage(blobAccess blobstore.BlobAccess) Con
 	}
 }
 
-func (cas *blobAccessContentAddressableStorage) GetAction(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Action, error) {
-	r := cas.blobAccess.Get(ctx, instance, digest)
+func (cas *blobAccessContentAddressableStorage) GetAction(ctx context.Context, digest *util.Digest) (*remoteexecution.Action, error) {
+	r := cas.blobAccess.Get(ctx, digest)
 	data, err := ioutil.ReadAll(r)
 	r.Close()
 	if err != nil {
@@ -40,8 +40,8 @@ func (cas *blobAccessContentAddressableStorage) GetAction(ctx context.Context, i
 	return &action, nil
 }
 
-func (cas *blobAccessContentAddressableStorage) GetCommand(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Command, error) {
-	r := cas.blobAccess.Get(ctx, instance, digest)
+func (cas *blobAccessContentAddressableStorage) GetCommand(ctx context.Context, digest *util.Digest) (*remoteexecution.Command, error) {
+	r := cas.blobAccess.Get(ctx, digest)
 	data, err := ioutil.ReadAll(r)
 	r.Close()
 	if err != nil {
@@ -54,8 +54,8 @@ func (cas *blobAccessContentAddressableStorage) GetCommand(ctx context.Context, 
 	return &command, nil
 }
 
-func (cas *blobAccessContentAddressableStorage) GetDirectory(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Directory, error) {
-	r := cas.blobAccess.Get(ctx, instance, digest)
+func (cas *blobAccessContentAddressableStorage) GetDirectory(ctx context.Context, digest *util.Digest) (*remoteexecution.Directory, error) {
+	r := cas.blobAccess.Get(ctx, digest)
 	data, err := ioutil.ReadAll(r)
 	r.Close()
 	if err != nil {
@@ -68,7 +68,7 @@ func (cas *blobAccessContentAddressableStorage) GetDirectory(ctx context.Context
 	return &directory, nil
 }
 
-func (cas *blobAccessContentAddressableStorage) GetFile(ctx context.Context, instance string, digest *remoteexecution.Digest, outputPath string, isExecutable bool) error {
+func (cas *blobAccessContentAddressableStorage) GetFile(ctx context.Context, digest *util.Digest, outputPath string, isExecutable bool) error {
 	var mode os.FileMode = 0444
 	if isExecutable {
 		mode = 0555
@@ -79,7 +79,7 @@ func (cas *blobAccessContentAddressableStorage) GetFile(ctx context.Context, ins
 	}
 	defer w.Close()
 
-	r := cas.blobAccess.Get(ctx, instance, digest)
+	r := cas.blobAccess.Get(ctx, digest)
 	_, err = io.Copy(w, r)
 	r.Close()
 
@@ -90,7 +90,7 @@ func (cas *blobAccessContentAddressableStorage) GetFile(ctx context.Context, ins
 	return err
 }
 
-func (cas *blobAccessContentAddressableStorage) PutFile(ctx context.Context, instance string, path string, digestFormat util.DigestFormat) (*remoteexecution.Digest, bool, error) {
+func (cas *blobAccessContentAddressableStorage) PutFile(ctx context.Context, path string, parentDigest *util.Digest) (*util.Digest, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, false, err
@@ -104,30 +104,38 @@ func (cas *blobAccessContentAddressableStorage) PutFile(ctx context.Context, ins
 	}
 
 	// Walk through the file to compute the digest.
-	digest, err := util.DigestFromReader(file, digestFormat)
-	if err != nil {
+	digestGenerator := parentDigest.NewDigestGenerator()
+	if _, err = io.Copy(digestGenerator, file); err != nil {
 		file.Close()
 		return nil, false, err
 	}
+	digest := digestGenerator.Sum()
 
 	// Rewind and store it.
 	if _, err := file.Seek(0, 0); err != nil {
 		file.Close()
 		return nil, false, err
 	}
-	if err := cas.blobAccess.Put(ctx, instance, digest, digest.SizeBytes, file); err != nil {
+	if err := cas.blobAccess.Put(ctx, digest, digest.GetSizeBytes(), file); err != nil {
 		return nil, false, err
 	}
 	return digest, (info.Mode() & 0111) != 0, nil
 }
 
-func (cas *blobAccessContentAddressableStorage) PutTree(ctx context.Context, instance string, tree *remoteexecution.Tree, digestFormat util.DigestFormat) (*remoteexecution.Digest, error) {
+func (cas *blobAccessContentAddressableStorage) PutTree(ctx context.Context, tree *remoteexecution.Tree, parentDigest *util.Digest) (*util.Digest, error) {
 	data, err := proto.Marshal(tree)
 	if err != nil {
 		return nil, err
 	}
-	digest := util.DigestFromData(data, digestFormat)
-	if err := cas.blobAccess.Put(ctx, instance, digest, digest.SizeBytes, ioutil.NopCloser(bytes.NewBuffer(data))); err != nil {
+
+	// Compute new digest of data.
+	digestGenerator := parentDigest.NewDigestGenerator()
+	if _, err := digestGenerator.Write(data); err != nil {
+		return nil, err
+	}
+	digest := digestGenerator.Sum()
+
+	if err := cas.blobAccess.Put(ctx, digest, digest.GetSizeBytes(), ioutil.NopCloser(bytes.NewBuffer(data))); err != nil {
 		return nil, err
 	}
 	return digest, nil

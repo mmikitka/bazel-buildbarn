@@ -4,14 +4,12 @@ go_library(
     name = "go_default_library",
     srcs = [
         "digest.go",
-        "digest_keyer.go",
         "error_reader.go",
     ],
     importpath = "github.com/EdSchouten/bazel-buildbarn/pkg/util",
     visibility = ["//visibility:public"],
     deps = [
         "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:go_default_library",
-        "@com_github_golang_protobuf//proto:go_default_library",
         "@org_golang_google_grpc//codes:go_default_library",
         "@org_golang_google_grpc//status:go_default_library",
     ],

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 
 	"google.golang.org/grpc/codes"
@@ -23,12 +24,24 @@ func NewContentAddressableStorageServer(contentAddressableStorage blobstore.Blob
 }
 
 func (s *contentAddressableStorageServer) FindMissingBlobs(ctx context.Context, in *remoteexecution.FindMissingBlobsRequest) (*remoteexecution.FindMissingBlobsResponse, error) {
-	digests, err := s.contentAddressableStorage.FindMissing(ctx, in.InstanceName, in.BlobDigests)
+	var inDigests []*util.Digest
+	for _, rawDigest := range in.BlobDigests {
+		digest, err := util.NewDigest(in.InstanceName, rawDigest)
+		if err != nil {
+			return nil, err
+		}
+		inDigests = append(inDigests, digest)
+	}
+	outDigests, err := s.contentAddressableStorage.FindMissing(ctx, inDigests)
 	if err != nil {
 		return nil, err
 	}
+	var rawDigests []*remoteexecution.Digest
+	for _, outDigest := range outDigests {
+		rawDigests = append(rawDigests, outDigest.GetRawDigest())
+	}
 	return &remoteexecution.FindMissingBlobsResponse{
-		MissingBlobDigests: digests,
+		MissingBlobDigests: rawDigests,
 	}, nil
 }
 

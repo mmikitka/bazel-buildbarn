@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/golang/protobuf/proto"
 )
@@ -22,8 +23,8 @@ func NewBlobAccessActionCache(blobAccess blobstore.BlobAccess) ActionCache {
 	}
 }
 
-func (ac *blobAccessActionCache) GetActionResult(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.ActionResult, error) {
-	r := ac.blobAccess.Get(ctx, instance, digest)
+func (ac *blobAccessActionCache) GetActionResult(ctx context.Context, digest *util.Digest) (*remoteexecution.ActionResult, error) {
+	r := ac.blobAccess.Get(ctx, digest)
 	data, err := ioutil.ReadAll(r)
 	r.Close()
 	if err != nil {
@@ -36,10 +37,10 @@ func (ac *blobAccessActionCache) GetActionResult(ctx context.Context, instance s
 	return &actionResult, nil
 }
 
-func (ac *blobAccessActionCache) PutActionResult(ctx context.Context, instance string, digest *remoteexecution.Digest, result *remoteexecution.ActionResult) error {
+func (ac *blobAccessActionCache) PutActionResult(ctx context.Context, digest *util.Digest, result *remoteexecution.ActionResult) error {
 	data, err := proto.Marshal(result)
 	if err != nil {
 		return err
 	}
-	return ac.blobAccess.Put(ctx, instance, digest, int64(len(data)), ioutil.NopCloser(bytes.NewBuffer(data)))
+	return ac.blobAccess.Put(ctx, digest, int64(len(data)), ioutil.NopCloser(bytes.NewBuffer(data)))
 }

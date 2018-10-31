@@ -28,33 +28,33 @@ func TestExistenceByteStreamServer(t *testing.T) {
 
 	// Calls against underlying storage.
 	blobAccess := mock.NewMockBlobAccess(ctrl)
-	blobAccess.EXPECT().Get(gomock.Any(), "", &remoteexecution.Digest{
+	blobAccess.EXPECT().Get(gomock.Any(), util.MustNewDigest("", &remoteexecution.Digest{
 		Hash:      "09f7e02f1290be211da707a266f153b3",
 		SizeBytes: 5,
-	}).Return(ioutil.NopCloser(bytes.NewBufferString("Hello")))
-	blobAccess.EXPECT().Get(gomock.Any(), "debian8", &remoteexecution.Digest{
+	})).Return(ioutil.NopCloser(bytes.NewBufferString("Hello")))
+	blobAccess.EXPECT().Get(gomock.Any(), util.MustNewDigest("debian8", &remoteexecution.Digest{
 		Hash:      "3538d378083b9afa5ffad767f7269509",
 		SizeBytes: 22,
-	}).Return(ioutil.NopCloser(bytes.NewBufferString("This is a long message")))
-	blobAccess.EXPECT().Get(gomock.Any(), "fedora28", &remoteexecution.Digest{
+	})).Return(ioutil.NopCloser(bytes.NewBufferString("This is a long message")))
+	blobAccess.EXPECT().Get(gomock.Any(), util.MustNewDigest("fedora28", &remoteexecution.Digest{
 		Hash:      "09f34d28e9c8bb445ec996388968a9e8",
 		SizeBytes: 7,
-	}).Return(util.NewErrorReader(status.Error(codes.NotFound, "Blob not found")))
+	})).Return(util.NewErrorReader(status.Error(codes.NotFound, "Blob not found")))
 
-	blobAccess.EXPECT().Put(gomock.Any(), "", &remoteexecution.Digest{
+	blobAccess.EXPECT().Put(gomock.Any(), util.MustNewDigest("", &remoteexecution.Digest{
 		Hash:      "94876e5b1ce62c7b2b5ff6e661624841",
 		SizeBytes: 14,
-	}, int64(14), gomock.Any()).DoAndReturn(func(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+	}), int64(14), gomock.Any()).DoAndReturn(func(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 		buf, err := ioutil.ReadAll(r)
 		require.NoError(t, err)
 		require.Equal(t, []byte("LaputanMachine"), buf)
 		require.NoError(t, r.Close())
 		return nil
 	})
-	blobAccess.EXPECT().Put(gomock.Any(), "", &remoteexecution.Digest{
+	blobAccess.EXPECT().Put(gomock.Any(), util.MustNewDigest("", &remoteexecution.Digest{
 		Hash:      "f10e562d8825ec2e17e0d9f58646f8084a658cfa",
 		SizeBytes: 6,
-	}, int64(6), gomock.Any()).DoAndReturn(func(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+	}), int64(6), gomock.Any()).DoAndReturn(func(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 		_, err := ioutil.ReadAll(r)
 		s := status.Convert(err)
 		require.Equal(t, codes.InvalidArgument, s.Code())
@@ -62,10 +62,10 @@ func TestExistenceByteStreamServer(t *testing.T) {
 		require.NoError(t, r.Close())
 		return err
 	})
-	blobAccess.EXPECT().Put(gomock.Any(), "fedora28", &remoteexecution.Digest{
+	blobAccess.EXPECT().Put(gomock.Any(), util.MustNewDigest("fedora28", &remoteexecution.Digest{
 		Hash:      "cbd8f7984c654c25512e3d9241ae569f",
 		SizeBytes: 3,
-	}, int64(3), gomock.Any()).DoAndReturn(func(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+	}), int64(3), gomock.Any()).DoAndReturn(func(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 		_, err := ioutil.ReadAll(r)
 		s := status.Convert(err)
 		require.Equal(t, codes.InvalidArgument, s.Code())
@@ -73,10 +73,10 @@ func TestExistenceByteStreamServer(t *testing.T) {
 		require.NoError(t, r.Close())
 		return err
 	})
-	blobAccess.EXPECT().Put(gomock.Any(), "windows10", &remoteexecution.Digest{
+	blobAccess.EXPECT().Put(gomock.Any(), util.MustNewDigest("windows10", &remoteexecution.Digest{
 		Hash:      "68e109f0f40ca72a15e05cc22786f8e6",
 		SizeBytes: 10,
-	}, int64(10), gomock.Any()).DoAndReturn(func(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+	}), int64(10), gomock.Any()).DoAndReturn(func(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 		_, err := ioutil.ReadAll(r)
 		s := status.Convert(err)
 		require.Equal(t, codes.InvalidArgument, s.Code())
@@ -109,6 +109,36 @@ func TestExistenceByteStreamServer(t *testing.T) {
 	s := status.Convert(err)
 	require.Equal(t, codes.InvalidArgument, s.Code())
 	require.Equal(t, "Invalid resource naming scheme", s.Message())
+
+	// Invalid digest length.
+	req, err = client.Read(ctx, &bytestream.ReadRequest{
+		ResourceName: "blobs/cafebabe/12",
+	})
+	require.NoError(t, err)
+	_, err = req.Recv()
+	s = status.Convert(err)
+	require.Equal(t, codes.InvalidArgument, s.Code())
+	require.Equal(t, "Unknown digest hash length: 8 characters", s.Message())
+
+	// Non-lowercase xdigits in hash.
+	req, err = client.Read(ctx, &bytestream.ReadRequest{
+		ResourceName: "blobs/89D5739BAABBBE65BE35CBE61C88E06D/12",
+	})
+	require.NoError(t, err)
+	_, err = req.Recv()
+	s = status.Convert(err)
+	require.Equal(t, codes.InvalidArgument, s.Code())
+	require.Equal(t, "Non-hexadecimal character in digest hash: U+0044 'D'", s.Message())
+
+	// Negative size in digest.
+	req, err = client.Read(ctx, &bytestream.ReadRequest{
+		ResourceName: "blobs/e811818f80d9c3c22d577ba83d6196788e553bb408535bb42105cdff726a60ab/-42",
+	})
+	require.NoError(t, err)
+	_, err = req.Recv()
+	s = status.Convert(err)
+	require.Equal(t, codes.InvalidArgument, s.Code())
+	require.Equal(t, "Invalid digest size: -42 bytes", s.Message())
 
 	// Attempt to fetch the small blob without an instance name.
 	req, err = client.Read(ctx, &bytestream.ReadRequest{

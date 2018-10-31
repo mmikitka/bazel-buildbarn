@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 
 	"google.golang.org/genproto/googleapis/bytestream"
@@ -19,24 +20,26 @@ import (
 // - ${instance}/blobs/${hash}/${size}
 //
 // In the process, the hash, size and instance are extracted.
-func parseResourceNameRead(resourceName string) (string, *remoteexecution.Digest) {
+func parseResourceNameRead(resourceName string) (*util.Digest, error) {
 	fields := strings.FieldsFunc(resourceName, func(r rune) bool { return r == '/' })
 	l := len(fields)
 	if (l != 3 && l != 4) || fields[l-3] != "blobs" {
-		return "", nil
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid resource naming scheme")
 	}
 	size, err := strconv.ParseInt(fields[l-1], 10, 64)
 	if err != nil {
-		return "", nil
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid resource naming scheme")
 	}
 	instance := ""
 	if l == 4 {
 		instance = fields[0]
 	}
-	return instance, &remoteexecution.Digest{
-		Hash:      fields[l-2],
-		SizeBytes: size,
-	}
+	return util.NewDigest(
+		instance,
+		&remoteexecution.Digest{
+			Hash:      fields[l-2],
+			SizeBytes: size,
+		})
 }
 
 // parseResourceNameWrite parses resource name strings in one of the following two forms:
@@ -45,24 +48,26 @@ func parseResourceNameRead(resourceName string) (string, *remoteexecution.Digest
 // - ${instance}/uploads/${uuid}/blobs/${hash}/${size}
 //
 // In the process, the hash, size and instance are extracted.
-func parseResourceNameWrite(resourceName string) (string, *remoteexecution.Digest) {
+func parseResourceNameWrite(resourceName string) (*util.Digest, error) {
 	fields := strings.FieldsFunc(resourceName, func(r rune) bool { return r == '/' })
 	l := len(fields)
 	if (l != 5 && l != 6) || fields[l-5] != "uploads" || fields[l-3] != "blobs" {
-		return "", nil
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid resource naming scheme")
 	}
 	size, err := strconv.ParseInt(fields[l-1], 10, 64)
 	if err != nil {
-		return "", nil
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid resource naming scheme")
 	}
 	instance := ""
 	if l == 6 {
 		instance = fields[0]
 	}
-	return instance, &remoteexecution.Digest{
-		Hash:      fields[l-2],
-		SizeBytes: size,
-	}
+	return util.NewDigest(
+		instance,
+		&remoteexecution.Digest{
+			Hash:      fields[l-2],
+			SizeBytes: size,
+		})
 }
 
 type byteStreamServer struct {
@@ -85,11 +90,11 @@ func (s *byteStreamServer) Read(in *bytestream.ReadRequest, out bytestream.ByteS
 		return status.Error(codes.Unimplemented, "This service does not support downloading partial files")
 	}
 
-	instance, digest := parseResourceNameRead(in.ResourceName)
-	if digest == nil {
-		return status.Errorf(codes.InvalidArgument, "Invalid resource naming scheme")
+	digest, err := parseResourceNameRead(in.ResourceName)
+	if err != nil {
+		return err
 	}
-	r := s.blobAccess.Get(out.Context(), instance, digest)
+	r := s.blobAccess.Get(out.Context(), digest)
 	defer r.Close()
 
 	for {
@@ -160,19 +165,20 @@ func (s *byteStreamServer) Write(stream bytestream.ByteStream_WriteServer) error
 	if err != nil {
 		return err
 	}
-	instance, digest := parseResourceNameWrite(request.ResourceName)
-	if digest == nil {
-		return status.Errorf(codes.InvalidArgument, "Invalid resource naming scheme")
+	digest, err := parseResourceNameWrite(request.ResourceName)
+	if err != nil {
+		return err
 	}
 	r := &byteStreamWriteServerReader{stream: stream}
 	if err := r.setRequest(request); err != nil {
 		return err
 	}
-	if err := s.blobAccess.Put(stream.Context(), instance, digest, digest.SizeBytes, r); err != nil {
+	sizeBytes := digest.GetSizeBytes()
+	if err := s.blobAccess.Put(stream.Context(), digest, sizeBytes, r); err != nil {
 		return err
 	}
 	return stream.SendAndClose(&bytestream.WriteResponse{
-		CommittedSize: digest.SizeBytes,
+		CommittedSize: sizeBytes,
 	})
 }
 

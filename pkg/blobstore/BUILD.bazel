@@ -13,7 +13,6 @@ go_library(
         "remote_blob_access.go",
         "s3_blob_access.go",
         "size_distinguishing_blob_access.go",
-        "valid_digest_requiring_blob_access.go",
     ],
     importpath = "github.com/EdSchouten/bazel-buildbarn/pkg/blobstore",
     visibility = ["//visibility:public"],
@@ -43,7 +42,6 @@ go_test(
         "byte_stream_server_test.go",
         "existence_precondition_blob_access_test.go",
         "merkle_blob_access_test.go",
-        "valid_digest_requiring_blob_access_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

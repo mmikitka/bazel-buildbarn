@@ -2,12 +2,12 @@ package blobstore
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 
 	"golang.org/x/net/context/ctxhttp"
 
@@ -34,8 +34,8 @@ func NewRemoteBlobAccess(address, prefix string) BlobAccess {
 	}
 }
 
-func (ba *remoteBlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
-	url := fmt.Sprintf("%s/%s/%s", ba.address, ba.prefix, digest.GetHash())
+func (ba *remoteBlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
+	url := fmt.Sprintf("%s/%s/%s", ba.address, ba.prefix, hex.EncodeToString(digest.GetHash()))
 	resp, err := ctxhttp.Get(ctx, http.DefaultClient, url)
 	if err != nil {
 		fmt.Printf("Error getting digest. %s\n", err)
@@ -52,8 +52,8 @@ func (ba *remoteBlobAccess) Get(ctx context.Context, instance string, digest *re
 	}
 }
 
-func (ba *remoteBlobAccess) Put(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
-	url := fmt.Sprintf("%s/%s/%s", ba.address, ba.prefix, digest.GetHash())
+func (ba *remoteBlobAccess) Put(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
+	url := fmt.Sprintf("%s/%s/%s", ba.address, ba.prefix, hex.EncodeToString(digest.GetHash()))
 	req, err := http.NewRequest(http.MethodPut, url, r)
 	if err != nil {
 		r.Close()
@@ -64,14 +64,14 @@ func (ba *remoteBlobAccess) Put(ctx context.Context, instance string, digest *re
 	return err
 }
 
-func (ba *remoteBlobAccess) Delete(ctx context.Context, instance string, digest *remoteexecution.Digest) error {
+func (ba *remoteBlobAccess) Delete(ctx context.Context, digest *util.Digest) error {
 	return status.Error(codes.Unimplemented, "Bazel HTTP caching protocol does not support object deletion")
 }
 
-func (ba *remoteBlobAccess) FindMissing(ctx context.Context, instance string, digests []*remoteexecution.Digest) ([]*remoteexecution.Digest, error) {
-	var missing []*remoteexecution.Digest
+func (ba *remoteBlobAccess) FindMissing(ctx context.Context, digests []*util.Digest) ([]*util.Digest, error) {
+	var missing []*util.Digest
 	for _, digest := range digests {
-		url := fmt.Sprintf("%s/%s/%s", ba.address, ba.prefix, digest.GetHash())
+		url := fmt.Sprintf("%s/%s/%s", ba.address, ba.prefix, hex.EncodeToString(digest.GetHash()))
 		resp, err := ctxhttp.Head(ctx, http.DefaultClient, url)
 		if err != nil {
 			return nil, err

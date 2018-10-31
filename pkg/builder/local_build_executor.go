@@ -15,6 +15,7 @@ import (
 	"github.com/EdSchouten/bazel-buildbarn/pkg/cas"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -61,31 +62,39 @@ func NewLocalBuildExecutor(contentAddressableStorage cas.ContentAddressableStora
 	}
 }
 
-func (be *localBuildExecutor) createInputDirectory(ctx context.Context, instance string, digest *remoteexecution.Digest, base string) error {
+func (be *localBuildExecutor) createInputDirectory(ctx context.Context, digest *util.Digest, base string) error {
 	if err := os.Mkdir(base, 0777); err != nil {
 		return err
 	}
 
-	directory, err := be.contentAddressableStorage.GetDirectory(ctx, instance, digest)
+	directory, err := be.contentAddressableStorage.GetDirectory(ctx, digest)
 	if err != nil {
 		return err
 	}
 
 	for _, file := range directory.Files {
+		childDigest, err := digest.GetDerivedDigest(file.Digest)
+		if err != nil {
+			return err
+		}
 		childPath, err := joinPathSafe(base, file.Name)
 		if err != nil {
 			return err
 		}
-		if err := be.contentAddressableStorage.GetFile(ctx, instance, file.Digest, childPath, file.IsExecutable); err != nil {
+		if err := be.contentAddressableStorage.GetFile(ctx, childDigest, childPath, file.IsExecutable); err != nil {
 			return err
 		}
 	}
 	for _, directory := range directory.Directories {
+		childDigest, err := digest.GetDerivedDigest(directory.Digest)
+		if err != nil {
+			return err
+		}
 		childPath, err := joinPathSafe(base, directory.Name)
 		if err != nil {
 			return err
 		}
-		if err := be.createInputDirectory(ctx, instance, directory.Digest, childPath); err != nil {
+		if err := be.createInputDirectory(ctx, childDigest, childPath); err != nil {
 			return err
 		}
 	}
@@ -96,10 +105,10 @@ func (be *localBuildExecutor) createInputDirectory(ctx context.Context, instance
 	return nil
 }
 
-func (be *localBuildExecutor) prepareFilesystem(ctx context.Context, request *remoteexecution.ExecuteRequest, action *remoteexecution.Action, command *remoteexecution.Command) error {
+func (be *localBuildExecutor) prepareFilesystem(ctx context.Context, request *remoteexecution.ExecuteRequest, inputRootDigest *util.Digest, command *remoteexecution.Command) error {
 	// Copy input files into build environment.
 	os.RemoveAll(pathBuildRoot)
-	if err := be.createInputDirectory(ctx, request.InstanceName, action.InputRootDigest, pathBuildRoot); err != nil {
+	if err := be.createInputDirectory(ctx, inputRootDigest, pathBuildRoot); err != nil {
 		return err
 	}
 
@@ -158,7 +167,7 @@ func (be *localBuildExecutor) runCommand(ctx context.Context, command *remoteexe
 	return cmd.Run()
 }
 
-func (be *localBuildExecutor) uploadDirectory(ctx context.Context, instance string, basePath string, digestFormat util.DigestFormat, permitNonExistent bool, children map[string]*remoteexecution.Directory) (*remoteexecution.Directory, error) {
+func (be *localBuildExecutor) uploadDirectory(ctx context.Context, basePath string, parentDigest *util.Digest, permitNonExistent bool, children map[string]*remoteexecution.Directory) (*remoteexecution.Directory, error) {
 	files, err := ioutil.ReadDir(basePath)
 	if err != nil {
 		if permitNonExistent && os.IsNotExist(err) {
@@ -173,28 +182,36 @@ func (be *localBuildExecutor) uploadDirectory(ctx context.Context, instance stri
 		fullPath := path.Join(basePath, name)
 		switch file.Mode() & os.ModeType {
 		case 0:
-			digest, isExecutable, err := be.contentAddressableStorage.PutFile(ctx, instance, fullPath, digestFormat)
+			digest, isExecutable, err := be.contentAddressableStorage.PutFile(ctx, fullPath, parentDigest)
 			if err != nil {
 				return nil, err
 			}
 			directory.Files = append(directory.Files, &remoteexecution.FileNode{
 				Name:         name,
-				Digest:       digest,
+				Digest:       digest.GetRawDigest(),
 				IsExecutable: isExecutable,
 			})
 		case os.ModeDir:
-			child, err := be.uploadDirectory(ctx, instance, fullPath, digestFormat, false, children)
+			child, err := be.uploadDirectory(ctx, fullPath, parentDigest, false, children)
 			if err != nil {
 				return nil, err
 			}
-			digest, err := util.DigestFromMessage(child, digestFormat)
+
+			// Compute digest of the child directory. This requires serializing it.
+			data, err := proto.Marshal(child)
 			if err != nil {
 				return nil, err
 			}
-			children[digest.Hash] = child
+			digestGenerator := parentDigest.NewDigestGenerator()
+			if _, err := digestGenerator.Write(data); err != nil {
+				return nil, err
+			}
+			digest := digestGenerator.Sum()
+
+			children[digest.GetKey(util.DigestKeyWithoutInstance)] = child
 			directory.Directories = append(directory.Directories, &remoteexecution.DirectoryNode{
 				Name:   name,
-				Digest: digest,
+				Digest: digest.GetRawDigest(),
 			})
 		case os.ModeSymlink:
 			target, err := os.Readlink(fullPath)
@@ -212,10 +229,10 @@ func (be *localBuildExecutor) uploadDirectory(ctx context.Context, instance stri
 	return &directory, nil
 }
 
-func (be *localBuildExecutor) uploadTree(ctx context.Context, instance string, path string, digestFormat util.DigestFormat) (*remoteexecution.Digest, error) {
+func (be *localBuildExecutor) uploadTree(ctx context.Context, path string, parentDigest *util.Digest) (*util.Digest, error) {
 	// Gather all individual directory objects and turn them into a tree.
 	children := map[string]*remoteexecution.Directory{}
-	root, err := be.uploadDirectory(ctx, instance, path, digestFormat, true, children)
+	root, err := be.uploadDirectory(ctx, path, parentDigest, true, children)
 	if root == nil || err != nil {
 		return nil, err
 	}
@@ -225,18 +242,26 @@ func (be *localBuildExecutor) uploadTree(ctx context.Context, instance string, p
 	for _, child := range children {
 		tree.Children = append(tree.Children, child)
 	}
-	return be.contentAddressableStorage.PutTree(ctx, instance, tree, digestFormat)
+	return be.contentAddressableStorage.PutTree(ctx, tree, parentDigest)
 }
 
 func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecution.ExecuteRequest) (*remoteexecution.ExecuteResponse, bool) {
 	timeStart := time.Now()
 
 	// Fetch action and command.
-	action, err := be.contentAddressableStorage.GetAction(ctx, request.InstanceName, request.ActionDigest)
+	actionDigest, err := util.NewDigest(request.InstanceName, request.ActionDigest)
 	if err != nil {
 		return convertErrorToExecuteResponse(err), false
 	}
-	command, err := be.contentAddressableStorage.GetCommand(ctx, request.InstanceName, action.CommandDigest)
+	action, err := be.contentAddressableStorage.GetAction(ctx, actionDigest)
+	if err != nil {
+		return convertErrorToExecuteResponse(err), false
+	}
+	commandDigest, err := actionDigest.GetDerivedDigest(action.CommandDigest)
+	if err != nil {
+		return convertErrorToExecuteResponse(err), false
+	}
+	command, err := be.contentAddressableStorage.GetCommand(ctx, commandDigest)
 	if err != nil {
 		return convertErrorToExecuteResponse(err), false
 	}
@@ -245,7 +270,11 @@ func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecut
 		timeAfterGetActionCommand.Sub(timeStart).Seconds())
 
 	// Set up inputs.
-	if err := be.prepareFilesystem(ctx, request, action, command); err != nil {
+	inputRootDigest, err := actionDigest.GetDerivedDigest(action.InputRootDigest)
+	if err != nil {
+		return convertErrorToExecuteResponse(err), false
+	}
+	if err := be.prepareFilesystem(ctx, request, inputRootDigest, command); err != nil {
 		return convertErrorToExecuteResponse(err), false
 	}
 	timeAfterPrepareFilesytem := time.Now()
@@ -266,19 +295,12 @@ func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecut
 	localBuildExecutorDurationSeconds.WithLabelValues("run_command").Observe(
 		timeAfterRunCommand.Sub(timeAfterPrepareFilesytem).Seconds())
 
-	// Use the same digest format as the input root for new objects
-	// stored in the Content Addressable Storage.
-	digestFormat, err := util.DigestFormatFromLength(len(action.InputRootDigest.Hash))
-	if err != nil {
-		return convertErrorToExecuteResponse(err), false
-	}
-
 	// Upload command output.
-	stdoutDigest, _, err := be.contentAddressableStorage.PutFile(ctx, request.InstanceName, pathStdout, digestFormat)
+	stdoutDigest, _, err := be.contentAddressableStorage.PutFile(ctx, pathStdout, inputRootDigest)
 	if err != nil {
 		return convertErrorToExecuteResponse(err), false
 	}
-	stderrDigest, _, err := be.contentAddressableStorage.PutFile(ctx, request.InstanceName, pathStderr, digestFormat)
+	stderrDigest, _, err := be.contentAddressableStorage.PutFile(ctx, pathStderr, inputRootDigest)
 	if err != nil {
 		return convertErrorToExecuteResponse(err), false
 	}
@@ -286,8 +308,8 @@ func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecut
 	response := &remoteexecution.ExecuteResponse{
 		Result: &remoteexecution.ActionResult{
 			ExitCode:     int32(exitCode),
-			StdoutDigest: stdoutDigest,
-			StderrDigest: stderrDigest,
+			StdoutDigest: stdoutDigest.GetRawDigest(),
+			StderrDigest: stderrDigest.GetRawDigest(),
 		},
 	}
 
@@ -297,7 +319,7 @@ func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecut
 		if err != nil {
 			return convertErrorToExecuteResponse(err), false
 		}
-		digest, isExecutable, err := be.contentAddressableStorage.PutFile(ctx, request.InstanceName, outputPath, digestFormat)
+		digest, isExecutable, err := be.contentAddressableStorage.PutFile(ctx, outputPath, inputRootDigest)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -306,7 +328,7 @@ func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecut
 		}
 		response.Result.OutputFiles = append(response.Result.OutputFiles, &remoteexecution.OutputFile{
 			Path:         outputFile,
-			Digest:       digest,
+			Digest:       digest.GetRawDigest(),
 			IsExecutable: isExecutable,
 		})
 	}
@@ -317,14 +339,14 @@ func (be *localBuildExecutor) Execute(ctx context.Context, request *remoteexecut
 		if err != nil {
 			return convertErrorToExecuteResponse(err), false
 		}
-		digest, err := be.uploadTree(ctx, request.InstanceName, outputPath, digestFormat)
+		digest, err := be.uploadTree(ctx, outputPath, inputRootDigest)
 		if err != nil {
 			return convertErrorToExecuteResponse(err), false
 		}
 		if digest != nil {
 			response.Result.OutputDirectories = append(response.Result.OutputDirectories, &remoteexecution.OutputDirectory{
 				Path:       outputDirectory,
-				TreeDigest: digest,
+				TreeDigest: digest.GetRawDigest(),
 			})
 		}
 	}

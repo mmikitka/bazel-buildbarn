@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/go-redis/redis"
 
 	"google.golang.org/grpc/codes"
@@ -15,28 +14,24 @@ import (
 )
 
 type redisBlobAccess struct {
-	redisClient *redis.Client
-	blobKeyer   util.DigestKeyer
+	redisClient   *redis.Client
+	blobKeyFormat util.DigestKeyFormat
 }
 
 // NewRedisBlobAccess creates a BlobAccess that uses Redis as its
 // backing store.
-func NewRedisBlobAccess(redisClient *redis.Client, blobKeyer util.DigestKeyer) BlobAccess {
+func NewRedisBlobAccess(redisClient *redis.Client, blobKeyFormat util.DigestKeyFormat) BlobAccess {
 	return &redisBlobAccess{
-		redisClient: redisClient,
-		blobKeyer:   blobKeyer,
+		redisClient:   redisClient,
+		blobKeyFormat: blobKeyFormat,
 	}
 }
 
-func (ba *redisBlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
+func (ba *redisBlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
 	if err := ctx.Err(); err != nil {
 		return util.NewErrorReader(err)
 	}
-	key, err := ba.blobKeyer(instance, digest)
-	if err != nil {
-		return util.NewErrorReader(err)
-	}
-	value, err := ba.redisClient.Get(key).Bytes()
+	value, err := ba.redisClient.Get(digest.GetKey(ba.blobKeyFormat)).Bytes()
 	if err != nil {
 		if err == redis.Nil {
 			return util.NewErrorReader(status.Errorf(codes.NotFound, err.Error()))
@@ -46,7 +41,7 @@ func (ba *redisBlobAccess) Get(ctx context.Context, instance string, digest *rem
 	return ioutil.NopCloser(bytes.NewBuffer(value))
 }
 
-func (ba *redisBlobAccess) Put(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+func (ba *redisBlobAccess) Put(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 	if err := ctx.Err(); err != nil {
 		r.Close()
 		return err
@@ -56,22 +51,14 @@ func (ba *redisBlobAccess) Put(ctx context.Context, instance string, digest *rem
 	if err != nil {
 		return err
 	}
-	key, err := ba.blobKeyer(instance, digest)
-	if err != nil {
-		return err
-	}
-	return ba.redisClient.Set(key, value, 0).Err()
+	return ba.redisClient.Set(digest.GetKey(ba.blobKeyFormat), value, 0).Err()
 }
 
-func (ba *redisBlobAccess) Delete(ctx context.Context, instance string, digest *remoteexecution.Digest) error {
-	key, err := ba.blobKeyer(instance, digest)
-	if err != nil {
-		return err
-	}
-	return ba.redisClient.Del(key).Err()
+func (ba *redisBlobAccess) Delete(ctx context.Context, digest *util.Digest) error {
+	return ba.redisClient.Del(digest.GetKey(ba.blobKeyFormat)).Err()
 }
 
-func (ba *redisBlobAccess) FindMissing(ctx context.Context, instance string, digests []*remoteexecution.Digest) ([]*remoteexecution.Digest, error) {
+func (ba *redisBlobAccess) FindMissing(ctx context.Context, digests []*util.Digest) ([]*util.Digest, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -83,18 +70,14 @@ func (ba *redisBlobAccess) FindMissing(ctx context.Context, instance string, dig
 	pipeline := ba.redisClient.Pipeline()
 	var cmds []*redis.IntCmd
 	for _, digest := range digests {
-		key, err := ba.blobKeyer(instance, digest)
-		if err != nil {
-			return nil, err
-		}
-		cmds = append(cmds, pipeline.Exists(key))
+		cmds = append(cmds, pipeline.Exists(digest.GetKey(ba.blobKeyFormat)))
 	}
 	_, err := pipeline.Exec()
 	if err != nil {
 		return nil, err
 	}
 
-	var missing []*remoteexecution.Digest
+	var missing []*util.Digest
 	for i, cmd := range cmds {
 		if cmd.Val() == 0 {
 			missing = append(missing, digests[i])

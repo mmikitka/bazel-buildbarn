@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -49,34 +49,34 @@ func NewMetricsBlobAccess(blobAccess BlobAccess, name string) BlobAccess {
 	}
 }
 
-func (ba *metricsBlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
+func (ba *metricsBlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
 	blobAccessOperationsStartedTotal.WithLabelValues(ba.name, "Get").Inc()
 	timeStart := time.Now()
-	r := ba.blobAccess.Get(ctx, instance, digest)
+	r := ba.blobAccess.Get(ctx, digest)
 	blobAccessOperationsDurationSeconds.WithLabelValues(ba.name, "Get").Observe(time.Now().Sub(timeStart).Seconds())
 	return r
 }
 
-func (ba *metricsBlobAccess) Put(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+func (ba *metricsBlobAccess) Put(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 	blobAccessOperationsStartedTotal.WithLabelValues(ba.name, "Put").Inc()
 	timeStart := time.Now()
-	err := ba.blobAccess.Put(ctx, instance, digest, sizeBytes, r)
+	err := ba.blobAccess.Put(ctx, digest, sizeBytes, r)
 	blobAccessOperationsDurationSeconds.WithLabelValues(ba.name, "Put").Observe(time.Now().Sub(timeStart).Seconds())
 	return err
 }
 
-func (ba *metricsBlobAccess) Delete(ctx context.Context, instance string, digest *remoteexecution.Digest) error {
+func (ba *metricsBlobAccess) Delete(ctx context.Context, digest *util.Digest) error {
 	blobAccessOperationsStartedTotal.WithLabelValues(ba.name, "Delete").Inc()
 	timeStart := time.Now()
-	err := ba.blobAccess.Delete(ctx, instance, digest)
+	err := ba.blobAccess.Delete(ctx, digest)
 	blobAccessOperationsDurationSeconds.WithLabelValues(ba.name, "Delete").Observe(time.Now().Sub(timeStart).Seconds())
 	return err
 }
 
-func (ba *metricsBlobAccess) FindMissing(ctx context.Context, instance string, digests []*remoteexecution.Digest) ([]*remoteexecution.Digest, error) {
+func (ba *metricsBlobAccess) FindMissing(ctx context.Context, digests []*util.Digest) ([]*util.Digest, error) {
 	blobAccessOperationsStartedTotal.WithLabelValues(ba.name, "FindMissing").Inc()
 	timeStart := time.Now()
-	digests, err := ba.blobAccess.FindMissing(ctx, instance, digests)
+	digests, err := ba.blobAccess.FindMissing(ctx, digests)
 	blobAccessOperationsDurationSeconds.WithLabelValues(ba.name, "FindMissing").Observe(time.Now().Sub(timeStart).Seconds())
 	return digests, err
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 )
 
 type sizeDistinguishingBlobAccess struct {
@@ -26,45 +26,45 @@ func NewSizeDistinguishingBlobAccess(smallBlobAccess BlobAccess, largeBlobAccess
 	}
 }
 
-func (ba *sizeDistinguishingBlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
-	if digest.SizeBytes <= ba.cutoffSizeBytes {
-		return ba.smallBlobAccess.Get(ctx, instance, digest)
+func (ba *sizeDistinguishingBlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
+	if digest.GetSizeBytes() <= ba.cutoffSizeBytes {
+		return ba.smallBlobAccess.Get(ctx, digest)
 	}
-	return ba.largeBlobAccess.Get(ctx, instance, digest)
+	return ba.largeBlobAccess.Get(ctx, digest)
 }
 
-func (ba *sizeDistinguishingBlobAccess) Put(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
+func (ba *sizeDistinguishingBlobAccess) Put(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
 	// Use the size that's in the digest; not the size provided. We
 	// can't re-obtain that in the other operations.
-	if digest.SizeBytes <= ba.cutoffSizeBytes {
-		return ba.smallBlobAccess.Put(ctx, instance, digest, sizeBytes, r)
+	if digest.GetSizeBytes() <= ba.cutoffSizeBytes {
+		return ba.smallBlobAccess.Put(ctx, digest, sizeBytes, r)
 	}
-	return ba.largeBlobAccess.Put(ctx, instance, digest, sizeBytes, r)
+	return ba.largeBlobAccess.Put(ctx, digest, sizeBytes, r)
 }
 
-func (ba *sizeDistinguishingBlobAccess) Delete(ctx context.Context, instance string, digest *remoteexecution.Digest) error {
-	if digest.SizeBytes <= ba.cutoffSizeBytes {
-		return ba.smallBlobAccess.Delete(ctx, instance, digest)
+func (ba *sizeDistinguishingBlobAccess) Delete(ctx context.Context, digest *util.Digest) error {
+	if digest.GetSizeBytes() <= ba.cutoffSizeBytes {
+		return ba.smallBlobAccess.Delete(ctx, digest)
 	}
-	return ba.largeBlobAccess.Delete(ctx, instance, digest)
+	return ba.largeBlobAccess.Delete(ctx, digest)
 }
 
 type findMissingResults struct {
-	missing []*remoteexecution.Digest
+	missing []*util.Digest
 	err     error
 }
 
-func callFindMissing(ctx context.Context, blobAccess BlobAccess, instance string, digests []*remoteexecution.Digest) findMissingResults {
-	missing, err := blobAccess.FindMissing(ctx, instance, digests)
+func callFindMissing(ctx context.Context, blobAccess BlobAccess, digests []*util.Digest) findMissingResults {
+	missing, err := blobAccess.FindMissing(ctx, digests)
 	return findMissingResults{missing: missing, err: err}
 }
 
-func (ba *sizeDistinguishingBlobAccess) FindMissing(ctx context.Context, instance string, digests []*remoteexecution.Digest) ([]*remoteexecution.Digest, error) {
+func (ba *sizeDistinguishingBlobAccess) FindMissing(ctx context.Context, digests []*util.Digest) ([]*util.Digest, error) {
 	// Split up digests by size.
-	var smallDigests []*remoteexecution.Digest
-	var largeDigests []*remoteexecution.Digest
+	var smallDigests []*util.Digest
+	var largeDigests []*util.Digest
 	for _, digest := range digests {
-		if digest.SizeBytes <= ba.cutoffSizeBytes {
+		if digest.GetSizeBytes() <= ba.cutoffSizeBytes {
 			smallDigests = append(smallDigests, digest)
 		} else {
 			largeDigests = append(largeDigests, digest)
@@ -74,9 +74,9 @@ func (ba *sizeDistinguishingBlobAccess) FindMissing(ctx context.Context, instanc
 	// Forward FindMissing() to both implementations.
 	smallResultsChan := make(chan findMissingResults, 1)
 	go func() {
-		smallResultsChan <- callFindMissing(ctx, ba.smallBlobAccess, instance, smallDigests)
+		smallResultsChan <- callFindMissing(ctx, ba.smallBlobAccess, smallDigests)
 	}()
-	largeResults := callFindMissing(ctx, ba.largeBlobAccess, instance, largeDigests)
+	largeResults := callFindMissing(ctx, ba.largeBlobAccess, largeDigests)
 	smallResults := <-smallResultsChan
 
 	// Recombine results.

@@ -56,8 +56,8 @@ func main() {
 					cas.NewBlobAccessContentAddressableStorage(
 						blobstore.NewExistencePreconditionBlobAccess(
 							contentAddressableStorageBlobAccess)),
-					util.KeyDigestWithoutInstance, "/cache", 10000, 1<<30),
-				util.KeyDigestWithoutInstance, 1000)),
+					util.DigestKeyWithoutInstance, "/cache", 10000, 1<<30),
+				util.DigestKeyWithoutInstance, 1000)),
 		ac.NewBlobAccessActionCache(
 			blobstore.NewMetricsBlobAccess(actionCacheBlobAccess, "ac_build_executor")))
 

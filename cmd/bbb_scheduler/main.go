@@ -29,7 +29,7 @@ func main() {
 		log.Fatal(http.ListenAndServe(":80", nil))
 	}()
 
-	executionServer, schedulerServer := builder.NewWorkerBuildQueue(util.KeyDigestWithInstance, *jobsPendingMax)
+	executionServer, schedulerServer := builder.NewWorkerBuildQueue(util.DigestKeyWithInstance, *jobsPendingMax)
 
 	// RPC server.
 	s := grpc.NewServer(

@@ -11,8 +11,8 @@ import (
 type directoryCachingContentAddressableStorage struct {
 	ContentAddressableStorage
 
-	digestKeyer    util.DigestKeyer
-	maxDirectories int
+	digestKeyFormat util.DigestKeyFormat
+	maxDirectories  int
 
 	directoriesPresentList    []string
 	directoriesPresentMessage map[string]*remoteexecution.Directory
@@ -22,12 +22,12 @@ type directoryCachingContentAddressableStorage struct {
 // ContentAddressableStorage that caches up a fixed number of
 // unmarshalled directory objects in memory. This reduces the amount of
 // network traffic needed.
-func NewDirectoryCachingContentAddressableStorage(base ContentAddressableStorage, digestKeyer util.DigestKeyer, maxDirectories int) ContentAddressableStorage {
+func NewDirectoryCachingContentAddressableStorage(base ContentAddressableStorage, digestKeyFormat util.DigestKeyFormat, maxDirectories int) ContentAddressableStorage {
 	return &directoryCachingContentAddressableStorage{
 		ContentAddressableStorage: base,
 
-		digestKeyer:    digestKeyer,
-		maxDirectories: maxDirectories,
+		digestKeyFormat: digestKeyFormat,
+		maxDirectories:  maxDirectories,
 
 		directoriesPresentMessage: map[string]*remoteexecution.Directory{},
 	}
@@ -47,15 +47,12 @@ func (cas *directoryCachingContentAddressableStorage) makeSpace() {
 	}
 }
 
-func (cas *directoryCachingContentAddressableStorage) GetDirectory(ctx context.Context, instance string, digest *remoteexecution.Digest) (*remoteexecution.Directory, error) {
-	key, err := cas.digestKeyer(instance, digest)
-	if err != nil {
-		return nil, err
-	}
+func (cas *directoryCachingContentAddressableStorage) GetDirectory(ctx context.Context, digest *util.Digest) (*remoteexecution.Directory, error) {
+	key := digest.GetKey(cas.digestKeyFormat)
 	if directory, ok := cas.directoriesPresentMessage[key]; ok {
 		return directory, nil
 	}
-	directory, err := cas.ContentAddressableStorage.GetDirectory(ctx, instance, digest)
+	directory, err := cas.ContentAddressableStorage.GetDirectory(ctx, digest)
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,9 +24,9 @@ func NewExistencePreconditionBlobAccess(blobAccess BlobAccess) BlobAccess {
 	}
 }
 
-func (ba *existencePreconditionBlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
+func (ba *existencePreconditionBlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
 	return &existencePreconditionReader{
-		ReadCloser: ba.BlobAccess.Get(ctx, instance, digest),
+		ReadCloser: ba.BlobAccess.Get(ctx, digest),
 	}
 }
 

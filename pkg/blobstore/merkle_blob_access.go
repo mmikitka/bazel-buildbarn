@@ -9,7 +9,6 @@ import (
 	"log"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
-	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,16 +29,16 @@ func NewMerkleBlobAccess(blobAccess BlobAccess) BlobAccess {
 	}
 }
 
-func (ba *merkleBlobAccess) Get(ctx context.Context, instance string, digest *remoteexecution.Digest) io.ReadCloser {
+func (ba *merkleBlobAccess) Get(ctx context.Context, digest *util.Digest) io.ReadCloser {
 	return newChecksumValidatingReader(
 		digest,
-		ba.BlobAccess.Get(ctx, instance, digest),
+		ba.BlobAccess.Get(ctx, digest),
 		func() {
 			// Trigger blob deletion in case we detect data
 			// corruption. This will cause future calls to
 			// FindMissing() to indicate absence, causing clients to
 			// re-upload them and/or build actions to be retried.
-			if err := ba.BlobAccess.Delete(ctx, instance, digest); err == nil {
+			if err := ba.BlobAccess.Delete(ctx, digest); err == nil {
 				log.Printf("Successfully deleted corrupted blob %s", digest)
 			} else {
 				log.Printf("Failed to delete corrupted blob %s: %s", digest, err)
@@ -48,12 +47,13 @@ func (ba *merkleBlobAccess) Get(ctx context.Context, instance string, digest *re
 		codes.Internal)
 }
 
-func (ba *merkleBlobAccess) Put(ctx context.Context, instance string, digest *remoteexecution.Digest, sizeBytes int64, r io.ReadCloser) error {
-	if digest.SizeBytes != sizeBytes {
+func (ba *merkleBlobAccess) Put(ctx context.Context, digest *util.Digest, sizeBytes int64, r io.ReadCloser) error {
+	digestSizeBytes := digest.GetSizeBytes()
+	if digestSizeBytes != sizeBytes {
 		log.Fatal("Called into CAS to store non-CAS object")
 	}
 	return ba.BlobAccess.Put(
-		ctx, instance, digest, digest.SizeBytes,
+		ctx, digest, digestSizeBytes,
 		newChecksumValidatingReader(digest, r, func() {}, codes.InvalidArgument))
 }
 
@@ -69,20 +69,12 @@ type checksumValidatingReader struct {
 	errorCode   codes.Code
 }
 
-func newChecksumValidatingReader(digest *remoteexecution.Digest, r io.ReadCloser, invalidator func(), errorCode codes.Code) io.ReadCloser {
-	digestFormat, err := util.DigestFormatFromLength(len(digest.Hash))
-	if err != nil {
-		log.Fatal("Failed to obtain format of digest, even though its contents have already been validated")
-	}
-	checksum, _ := hex.DecodeString(digest.Hash)
-	if err != nil {
-		log.Fatal("Failed to decode digest hash, even though its contents have already been validated")
-	}
+func newChecksumValidatingReader(digest *util.Digest, r io.ReadCloser, invalidator func(), errorCode codes.Code) io.ReadCloser {
 	return &checksumValidatingReader{
 		ReadCloser:       r,
-		expectedChecksum: checksum,
-		partialChecksum:  digestFormat(),
-		sizeLeft:         digest.SizeBytes,
+		expectedChecksum: digest.GetHash(),
+		partialChecksum:  digest.NewHasher(),
+		sizeLeft:         digest.GetSizeBytes(),
 		invalidator:      invalidator,
 		errorCode:        errorCode,
 	}

@@ -63,8 +63,8 @@ func (job *workerBuildJob) waitExecution(out remoteexecution.Execution_ExecuteSe
 }
 
 type workerBuildQueue struct {
-	deduplicationKeyer util.DigestKeyer
-	jobsPendingMax     uint
+	deduplicationKeyFormat util.DigestKeyFormat
+	jobsPendingMax         uint
 
 	jobsLock                   sync.Mutex
 	jobsNameMap                map[string]*workerBuildJob
@@ -76,10 +76,10 @@ type workerBuildQueue struct {
 // NewWorkerBuildQueue creates an execution server that places execution
 // requests in a queue. These execution requests may be extracted by
 // workers.
-func NewWorkerBuildQueue(deduplicationKeyer util.DigestKeyer, jobsPendingMax uint) (remoteexecution.ExecutionServer, scheduler.SchedulerServer) {
+func NewWorkerBuildQueue(deduplicationKeyFormat util.DigestKeyFormat, jobsPendingMax uint) (remoteexecution.ExecutionServer, scheduler.SchedulerServer) {
 	bq := &workerBuildQueue{
-		deduplicationKeyer: deduplicationKeyer,
-		jobsPendingMax:     jobsPendingMax,
+		deduplicationKeyFormat: deduplicationKeyFormat,
+		jobsPendingMax:         jobsPendingMax,
 
 		jobsNameMap:          map[string]*workerBuildJob{},
 		jobsDeduplicationMap: map[string]*workerBuildJob{},
@@ -89,10 +89,11 @@ func NewWorkerBuildQueue(deduplicationKeyer util.DigestKeyer, jobsPendingMax uin
 }
 
 func (bq *workerBuildQueue) Execute(in *remoteexecution.ExecuteRequest, out remoteexecution.Execution_ExecuteServer) error {
-	deduplicationKey, err := bq.deduplicationKeyer(in.InstanceName, in.ActionDigest)
+	digest, err := util.NewDigest(in.InstanceName, in.ActionDigest)
 	if err != nil {
 		return err
 	}
+	deduplicationKey := digest.GetKey(bq.deduplicationKeyFormat)
 
 	bq.jobsLock.Lock()
 	defer bq.jobsLock.Unlock()
