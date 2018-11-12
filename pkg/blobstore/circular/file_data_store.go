@@ -52,11 +52,19 @@ type fileDataStoreReader struct {
 }
 
 func (f *fileDataStoreReader) Read(b []byte) (n int, err error) {
+	if f.size == 0 {
+		return 0, io.EOF
+	}
+
 	readOffset := f.offset % f.ds.size
 	readLength := f.size
+	if bLength := uint64(len(b)); readLength > bLength {
+		readLength = bLength
+	}
 	if readLength > f.ds.size-readOffset {
 		readLength = f.ds.size - readOffset
 	}
+
 	if nRead, err := f.ds.file.ReadAt(b[:readLength], int64(readOffset)); err == io.EOF {
 		for i := nRead; i < int(readLength); i++ {
 			b[i] = 0
@@ -64,6 +72,7 @@ func (f *fileDataStoreReader) Read(b []byte) (n int, err error) {
 	} else if err != nil {
 		return 0, err
 	}
+
 	f.offset += readLength
 	f.size -= readLength
 	return int(readLength), nil
