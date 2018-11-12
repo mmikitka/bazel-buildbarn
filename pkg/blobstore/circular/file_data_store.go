@@ -60,11 +60,7 @@ func (f *fileDataStoreReader) Read(b []byte) (n int, err error) {
 		readLength = f.ds.size - readOffset
 	}
 
-	if nRead, err := f.ds.file.ReadAt(b[:readLength], int64(readOffset)); err == io.EOF {
-		for i := nRead; i < int(readLength); i++ {
-			b[i] = 0
-		}
-	} else if err != nil {
+	if nRead, err := f.ds.file.ReadAt(b[:readLength], int64(readOffset)); err != nil {
 		return 0, err
 	}
 
