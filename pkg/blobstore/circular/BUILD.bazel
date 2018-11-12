@@ -4,13 +4,10 @@ go_library(
     name = "go_default_library",
     srcs = [
         "circular_blob_access.go",
-        "data_store.go",
         "file_data_store.go",
         "file_offset_store.go",
         "file_state_store.go",
-        "offset_store.go",
         "read_writer_at.go",
-        "state_store.go",
     ],
     importpath = "github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/circular",
     visibility = ["//visibility:public"],

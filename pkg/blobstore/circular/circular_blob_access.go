@@ -14,6 +14,21 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type OffsetStore interface {
+	Get(digest *util.Digest, minOffset uint64, maxOffset uint64) (uint64, bool, error)
+	Put(digest *util.Digest, minOffset uint64, newOffset uint64) error
+}
+
+type DataStore interface {
+	Put(b []byte, offset uint64) error
+	Get(offset uint64, size int64) io.ReadCloser
+}
+
+type StateStore interface {
+	Get() (uint64, uint64, error)
+	Put(readCursor uint64, writeCursor uint64) error
+}
+
 type circularBlobAccess struct {
 	offsetStore OffsetStore
 	dataStore   DataStore
