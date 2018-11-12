@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"strconv"
 	"strings"
@@ -129,6 +130,38 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			} else {
 				return err
 			}
+		} else if commandUpper == "SET" && parameters == 3 {
+			key, err := readBulkString(r)
+			if err != nil {
+				return err
+			}
+			digest, err := getDigestFromKey(key)
+			if err != nil {
+				return err
+			}
+			length, err := readBulkStringHeader(r)
+			if err != nil {
+				return err
+			}
+			if int64(length) != digest.GetSizeBytes() {
+				return errors.New("XXX")
+			}
+
+			l := io.LimitedReader{
+				R: r,
+				N: int64(length),
+			}
+			if err := rs.blobAccess.Put(ctx, digest, int64(length), ioutil.NopCloser(&l)); err != nil {
+				return err
+			}
+			var buf [2]byte
+			if _, err := io.ReadFull(r, buf[:]); err != nil {
+				return err
+			}
+			if buf != [...]byte{'\r', '\n'} {
+				return errors.New("String did not end with CR+NL")
+			}
+			conn.Write([]byte("+OK\r\n"))
 		} else {
 			return errors.New("Unknown command")
 		}
