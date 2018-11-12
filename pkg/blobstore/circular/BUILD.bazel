@@ -9,6 +9,7 @@ go_library(
         "file_offset_store.go",
         "file_state_store.go",
         "offset_store.go",
+        "read_writer_at.go",
         "state_store.go",
     ],
     importpath = "github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/circular",

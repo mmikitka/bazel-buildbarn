@@ -1,24 +1,19 @@
 package circular
 
 import (
-	"log"
 	"encoding/binary"
 	"io"
-	"os"
+	"log"
 )
 
 type fileStateStore struct {
-	file *os.File
+	file ReadWriterAt
 }
 
-func NewFileStateStore(path string) (StateStore, error) {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return nil, err
-	}
+func NewFileStateStore(file ReadWriterAt) StateStore {
 	return &fileStateStore{
 		file: file,
-	}, nil
+	}
 }
 
 func (ss *fileStateStore) Get() (uint64, uint64, error) {

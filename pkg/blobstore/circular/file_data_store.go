@@ -2,23 +2,18 @@ package circular
 
 import (
 	"io"
-	"os"
 )
 
 type fileDataStore struct {
-	file *os.File
+	file ReadWriterAt
 	size uint64
 }
 
-func NewFileDataStore(path string, size uint64) (DataStore, error) {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return nil, err
-	}
+func NewFileDataStore(file ReadWriterAt, size uint64) DataStore {
 	return &fileDataStore{
 		file: file,
 		size: size,
-	}, nil
+	}
 }
 
 func (ds *fileDataStore) Put(b []byte, offset uint64) error {

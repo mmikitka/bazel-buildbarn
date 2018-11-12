@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
-	"os"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 )
@@ -58,19 +57,15 @@ func (or *offsetRecord) withAttempt(attempt uint32) offsetRecord {
 }
 
 type fileOffsetStore struct {
-	file *os.File
+	file ReadWriterAt
 	size uint64
 }
 
-func NewFileOffsetStore(path string, size uint64) (OffsetStore, error) {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return nil, err
-	}
+func NewFileOffsetStore(file ReadWriterAt, size uint64) OffsetStore {
 	return &fileOffsetStore{
 		file: file,
 		size: size,
-	}, nil
+	}
 }
 
 func (os *fileOffsetStore) getPositionOfSlot(slot uint32) int64 {
