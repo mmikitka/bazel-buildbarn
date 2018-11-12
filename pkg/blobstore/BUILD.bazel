@@ -10,6 +10,7 @@ go_library(
         "merkle_blob_access.go",
         "metrics_blob_access.go",
         "redis_blob_access.go",
+        "redis_server.go",
         "remote_blob_access.go",
         "s3_blob_access.go",
         "size_distinguishing_blob_access.go",

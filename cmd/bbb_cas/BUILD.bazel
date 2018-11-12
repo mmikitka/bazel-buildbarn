@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/EdSchouten/bazel-buildbarn/cmd/bbb_cas",
     visibility = ["//visibility:private"],
-    deps = ["//pkg/blobstore/circular:go_default_library"],
+    deps = [
+        "//pkg/blobstore:go_default_library",
+        "//pkg/blobstore/circular:go_default_library",
+    ],
 )
 
 go_binary(

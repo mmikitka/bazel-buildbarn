@@ -5,6 +5,6 @@ import (
 )
 
 type DataStore interface {
-	Put(p []byte, offset uint64) error
+	Put(b []byte, offset uint64) error
 	Get(offset uint64, size int64) io.ReadCloser
 }
