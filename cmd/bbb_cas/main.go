@@ -10,6 +10,10 @@ import (
 )
 
 func main() {
+	offsetStore, err := circular.NewFileOffsetStore("/tmp/bbb_cas.offset", 1024 * 1024)
+	if err != nil {
+		log.Fatal(err)
+	}
 	dataSize := uint64(1024 * 1024 * 1024)
 	dataStore, err := circular.NewFileDataStore("/tmp/bbb_cas.data", dataSize)
 	if err != nil {
@@ -19,8 +23,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	blobAccess, err := circular.NewCircularBlobAccess(nil, dataStore, dataSize, stateStore)
+	blobAccess, err := circular.NewCircularBlobAccess(offsetStore, dataStore, dataSize, stateStore)
 	if err != nil {
 		log.Fatal(err)
 	}
