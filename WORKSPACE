@@ -211,11 +211,3 @@ go_repository(
     strip_prefix = "terminal-3.1.0",
     urls = ["https://github.com/buildkite/terminal/archive/v3.1.0.tar.gz"],
 )
-
-go_repository(
-    name = "org_golang_x_exp",
-    importpath = "golang.org/x/exp",
-    sha256 = "2f2cbed350bd75a704a1c0e62136e359fb261dfbca3d76ac7662ac3918436af1",
-    strip_prefix = "exp-929df1f02ceb7acf0f0c4f6ce237afd7ba0cddd8",
-    urls = ["https://github.com/golang/exp/archive/929df1f02ceb7acf0f0c4f6ce237afd7ba0cddd8.tar.gz"],
-)
