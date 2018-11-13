@@ -95,12 +95,14 @@ func (os *fileOffsetStore) Get(digest *util.Digest, minOffset uint64, maxOffset 
 		if err != nil {
 			return 0, false, err
 		}
-		if !storedRecord.offsetInBounds(minOffset, maxOffset) ||
-			os.getPositionOfSlot(storedRecord.getSlot()) != position {
+		if !storedRecord.offsetInBounds(minOffset, maxOffset) {
 			break
 		}
 		if storedRecord.digestAndAttemptEqual(lookupRecord) {
 			return storedRecord.getOffset(), true, nil
+		}
+		if os.getPositionOfSlot(storedRecord.getSlot()) != position {
+			break
 		}
 	}
 	return 0, false, nil
