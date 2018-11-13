@@ -34,7 +34,7 @@ func getDigestFromKey(key string) (*util.Digest, error) {
 	}
 	sizeBytes, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to parse size in digest: %s", err)
 	}
 	return util.NewDigest(instance, &remoteexecution.Digest{
 		Hash:      parts[0],
@@ -130,19 +130,20 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			}
 			digest, err := getDigestFromKey(key)
 			if err != nil {
-				return err
+				return fmt.Errorf("Failed to convert key to digest: %s", err)
 			}
 
 			missing, err := rs.blobAccess.FindMissing(ctx, []*util.Digest{digest})
 			if err != nil {
-				return err
+				return fmt.Errorf("Failed to find missing blobs: %s", err)
 			}
+			response := []byte(":1\r\n")
 			if len(missing) > 0 {
 				// Key does not exist.
-				conn.Write([]byte(":0\r\n"))
-			} else {
-				// Key exists.
-				conn.Write([]byte(":1\r\n"))
+				response = []byte(":0\r\n")
+			}
+			if _, err := conn.Write(response); err != nil {
+				return fmt.Errorf("Failed to write response to client: %s", err)
 			}
 		} else if commandUpper == "GET" && parameters == 2 {
 			// GET <key>.
@@ -152,7 +153,7 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			}
 			digest, err := getDigestFromKey(key)
 			if err != nil {
-				return err
+				return fmt.Errorf("Failed to convert key to digest: %s", err)
 			}
 
 			// Read the first chunk of data to determine whether a
@@ -161,22 +162,23 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			r := rs.blobAccess.Get(ctx, digest)
 			if n, err := r.Read(b[:]); err == nil {
 				if _, err := conn.Write([]byte(fmt.Sprintf("$%d\r\n", digest.GetSizeBytes()))); err != nil {
-					return err
+					return fmt.Errorf("Failed to write response size to client: %s", err)
 				}
 				if _, err := conn.Write(b[:n]); err != nil {
-					return err
+					return fmt.Errorf("Failed to write response data to client: %s", err)
 				}
 				if _, err := io.Copy(conn, r); err != nil {
-					return err
+					return fmt.Errorf("Failed to write response data to client: %s", err)
 				}
 				if _, err := conn.Write([]byte("\r\n")); err != nil {
-					return err
+					return fmt.Errorf("Failed to write trailing CR+LF: %s", err)
 				}
 			} else if s := status.Convert(err); s.Code() == codes.NotFound {
 				// Key does not exist.
-				conn.Write([]byte("$-1\r\n"))
+				if _, err := conn.Write([]byte("$-1\r\n")); err != nil {
+				}
 			} else {
-				return err
+				return fmt.Errorf("Failed to get blob: %s", err)
 			}
 		} else if commandUpper == "SET" && parameters == 3 {
 			// SET <key> <value>.
@@ -186,11 +188,11 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			}
 			digest, err := getDigestFromKey(key)
 			if err != nil {
-				return err
+				return fmt.Errorf("Failed to convert key to digest: %s", err)
 			}
 			length, err := readBulkStringHeader(r)
 			if err != nil {
-				return err
+				return fmt.Errorf("Failed to read bulk string header from client: %s", err)
 			}
 
 			l := io.LimitedReader{
@@ -198,11 +200,11 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 				N: int64(length),
 			}
 			if err := rs.blobAccess.Put(ctx, digest, int64(length), ioutil.NopCloser(&l)); err != nil {
-				return err
+				return fmt.Errorf("Failed to put blob: %s", err)
 			}
 			var buf [2]byte
 			if _, err := io.ReadFull(r, buf[:]); err != nil {
-				return err
+				return fmt.Errorf("Failed to read CR+LF from client: %s", err)
 			}
 			if buf != [...]byte{'\r', '\n'} {
 				return errors.New("CR+LF at end of value missing")
