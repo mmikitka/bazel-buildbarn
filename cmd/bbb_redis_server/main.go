@@ -11,18 +11,18 @@ import (
 )
 
 func main() {
-	offsetFile, err := os.OpenFile("/data/bbb_cas.offset", os.O_RDWR|os.O_CREATE, 0644)
+	offsetFile, err := os.OpenFile("/data/offset", os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	dataFile, err := os.OpenFile("/data/bbb_cas.data", os.O_RDWR|os.O_CREATE, 0644)
+	dataFile, err := os.OpenFile("/data/data", os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 	dataSize := uint64(1024 * 1024 * 1024)
 
-	stateFile, err := os.OpenFile("/data/bbb_cas.state", os.O_RDWR|os.O_CREATE, 0644)
+	stateFile, err := os.OpenFile("/data/state", os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
