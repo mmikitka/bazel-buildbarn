@@ -100,7 +100,26 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			return err
 		}
 		commandUpper := strings.ToUpper(commandName)
-		if commandUpper == "GET" && parameters == 2 {
+		if commandUpper == "EXISTS" && parameters == 2 {
+			key, err := readBulkString(r)
+			if err != nil {
+				return err
+			}
+			digest, err := getDigestFromKey(key)
+			if err != nil {
+				return err
+			}
+
+			missing, err := rs.blobAccess.FindMissing(ctx, []*util.Digest{digest})
+			if err != nil {
+				return err
+			}
+			if len(missing) > 0 {
+				conn.Write([]byte(":0\r\n"))
+			} else {
+				conn.Write([]byte(":1\r\n"))
+			}
+		} else if commandUpper == "GET" && parameters == 2 {
 			key, err := readBulkString(r)
 			if err != nil {
 				return err
