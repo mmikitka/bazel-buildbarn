@@ -209,7 +209,7 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			}
 			conn.Write([]byte("+OK\r\n"))
 		} else {
-			return errors.New("Unknown command")
+			return fmt.Errorf("Unknown command: %s", commandName)
 		}
 	}
 }
