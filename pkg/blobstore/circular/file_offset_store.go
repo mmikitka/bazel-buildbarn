@@ -7,12 +7,28 @@ import (
 	"io"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
-	maximumAttemptsPerRecord = 16
-	maximumIterationsPerPut  = 128
+	maximumIterations = 8
 )
+
+var (
+	operationsIterations = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "buildbarn",
+			Subsystem: "blobstore_circular",
+			Name:      "file_offset_store_operations_iterations",
+			Help:      "Iterations spent per operation on the file offset store.",
+			Buckets:   prometheus.LinearBuckets(1.0, 1.0, maximumIterations),
+		},
+		[]string{"operation", "result"})
+)
+
+func init() {
+	prometheus.MustRegister(operationsIterations)
+}
 
 type offsetRecord [sha256.Size + 4 + 4 + 8]byte
 
@@ -88,24 +104,32 @@ func (os *fileOffsetStore) putRecordAtPosition(record offsetRecord, position int
 
 func (os *fileOffsetStore) Get(digest *util.Digest, minOffset uint64, maxOffset uint64) (uint64, bool, error) {
 	record := newOffsetRecord(digest, 0)
-	for attempt := uint32(0); attempt < maximumAttemptsPerRecord; attempt++ {
-		lookupRecord := record.withAttempt(attempt)
+	for iteration := uint32(1); ; iteration++ {
+		if iteration >= maximumIterations {
+			operationsIterations.WithLabelValues("Get", "TooManyIterations").Observe(float64(iteration))
+			return 0, false, nil
+		}
+
+		lookupRecord := record.withAttempt(iteration - 1)
 		position := os.getPositionOfSlot(lookupRecord.getSlot())
 		storedRecord, err := os.getRecordAtPosition(position)
 		if err != nil {
+			operationsIterations.WithLabelValues("Get", "Error").Observe(float64(iteration))
 			return 0, false, err
 		}
 		if !storedRecord.offsetInBounds(minOffset, maxOffset) {
-			break
+			operationsIterations.WithLabelValues("Get", "NotFound").Observe(float64(iteration))
+			return 0, false, nil
 		}
 		if storedRecord.digestAndAttemptEqual(lookupRecord) {
+			operationsIterations.WithLabelValues("Get", "Success").Observe(float64(iteration))
 			return storedRecord.getOffset(), true, nil
 		}
 		if os.getPositionOfSlot(storedRecord.getSlot()) != position {
-			break
+			operationsIterations.WithLabelValues("Get", "NotFound").Observe(float64(iteration))
+			return 0, false, nil
 		}
 	}
-	return 0, false, nil
 }
 
 func (os *fileOffsetStore) putRecord(record offsetRecord, minOffset uint64, maxOffset uint64) (offsetRecord, bool, error) {
@@ -119,7 +143,7 @@ func (os *fileOffsetStore) putRecord(record offsetRecord, minOffset uint64, maxO
 	}
 	oldAttempt := oldRecord.getAttempt()
 	if !oldRecord.offsetInBounds(minOffset, maxOffset) ||
-		oldAttempt >= maximumAttemptsPerRecord-1 ||
+		oldAttempt >= maximumIterations-1 ||
 		os.getPositionOfSlot(oldRecord.getSlot()) != position {
 		return offsetRecord{}, false, os.putRecordAtPosition(record, position)
 	}
@@ -129,7 +153,7 @@ func (os *fileOffsetStore) putRecord(record offsetRecord, minOffset uint64, maxO
 	}
 
 	attempt := record.getAttempt()
-	if attempt >= maximumAttemptsPerRecord-1 {
+	if attempt >= maximumIterations-1 {
 		return offsetRecord{}, false, nil
 	}
 	return record.withAttempt(attempt + 1), true, nil
@@ -137,14 +161,20 @@ func (os *fileOffsetStore) putRecord(record offsetRecord, minOffset uint64, maxO
 
 func (os *fileOffsetStore) Put(digest *util.Digest, minOffset uint64, newOffset uint64) error {
 	record := newOffsetRecord(digest, newOffset)
-	for i := 0; i < maximumIterationsPerPut; i++ {
+	for iteration := 1; ; iteration++ {
+		if iteration > maximumIterations {
+			operationsIterations.WithLabelValues("Put", "TooManyIterations").Observe(float64(iteration))
+			return nil
+		}
+
 		if nextRecord, more, err := os.putRecord(record, minOffset, newOffset); err != nil {
+			operationsIterations.WithLabelValues("Put", "Error").Observe(float64(iteration))
 			return err
 		} else if more {
 			record = nextRecord
 		} else {
-			break
+			operationsIterations.WithLabelValues("Put", "Success").Observe(float64(iteration))
+			return nil
 		}
 	}
-	return nil
 }
