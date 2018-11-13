@@ -23,7 +23,7 @@ import (
 // CreateBlobAccessObjectsFromConfig creates a pair of BlobAccess
 // objects for the Content Addressable Storage and Action cache based on
 // a configuration file.
-func CreateBlobAccessObjectsFromConfig(configurationFile string) (blobstore.BlobAccess, blobstore.BlobAccess, error) {
+func CreateBlobAccessObjectsFromConfig(configurationFile string, needsActionCache bool) (blobstore.BlobAccess, blobstore.BlobAccess, error) {
 	data, err := ioutil.ReadFile(configurationFile)
 	if err != nil {
 		return nil, nil, err
@@ -38,9 +38,12 @@ func CreateBlobAccessObjectsFromConfig(configurationFile string) (blobstore.Blob
 	if err != nil {
 		return nil, nil, err
 	}
-	actionCache, err := createBlobAccess(config.ActionCache, "ac", util.DigestKeyWithInstance)
-	if err != nil {
-		return nil, nil, err
+	var actionCache blobstore.BlobAccess = nil
+	if needsActionCache {
+		actionCache, err = createBlobAccess(config.ActionCache, "ac", util.DigestKeyWithInstance)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// Stack a mandatory layer on top to protect against data corruption.
