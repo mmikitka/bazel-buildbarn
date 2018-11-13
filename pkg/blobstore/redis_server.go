@@ -19,6 +19,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// getDigestFromKey converts key strings provided by the client to
+// digests. This function does the inverse of Digest.GetKey().
+// TODO(edsch): Should this be in pkg/util/digest.go?
 func getDigestFromKey(key string) (*util.Digest, error) {
 	parts := strings.SplitN(key, "|", 3)
 	instance := ""
@@ -39,6 +42,7 @@ func getDigestFromKey(key string) (*util.Digest, error) {
 	})
 }
 
+// readArrayCount parses an array header ("*123\r\n") from user input.
 func readArrayCount(r *bufio.Reader) (int, error) {
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -51,6 +55,7 @@ func readArrayCount(r *bufio.Reader) (int, error) {
 	return int(n), err
 }
 
+// readArrayCount parses a string header ("$123\r\n") from user input.
 func readBulkStringHeader(r *bufio.Reader) (int, error) {
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -63,6 +68,8 @@ func readBulkStringHeader(r *bufio.Reader) (int, error) {
 	return int(n), err
 }
 
+// readArrayCount parses a string header from user input, followed by
+// fetching the actual string that follows.
 func readBulkString(r *bufio.Reader) (string, error) {
 	length, err := readBulkStringHeader(r)
 	if err != nil {
@@ -78,10 +85,25 @@ func readBulkString(r *bufio.Reader) (string, error) {
 	return string(buf[:length]), nil
 }
 
+// RedisServer implements a very simple Redis compatible server,
+// granting access to a BlobAccess. It implements the following three
+// commands:
+//
+// - EXISTS <key>
+// - GET <key>
+// - PUT <key> <value>
+//
+// Unlike a plain Redis server, keys have to match the format
+// "hash|size" or "hash|size|instance".
+//
+// TODO(edsch): The GET operation currently assumes the object size is
+// equal to the size in the digest, restricting the use of this server
+// to the Content Addressable Storage.
 type RedisServer struct {
 	blobAccess BlobAccess
 }
 
+// NewRedisServer creates a RedisServer object.
 func NewRedisServer(blobAccess BlobAccess) *RedisServer {
 	return &RedisServer{
 		blobAccess: blobAccess,
@@ -101,6 +123,7 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 		}
 		commandUpper := strings.ToUpper(commandName)
 		if commandUpper == "EXISTS" && parameters == 2 {
+			// EXISTS <key>.
 			key, err := readBulkString(r)
 			if err != nil {
 				return err
@@ -115,11 +138,14 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 				return err
 			}
 			if len(missing) > 0 {
+				// Key does not exist.
 				conn.Write([]byte(":0\r\n"))
 			} else {
+				// Key exists.
 				conn.Write([]byte(":1\r\n"))
 			}
 		} else if commandUpper == "GET" && parameters == 2 {
+			// GET <key>.
 			key, err := readBulkString(r)
 			if err != nil {
 				return err
@@ -129,6 +155,8 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 				return err
 			}
 
+			// Read the first chunk of data to determine whether a
+			// success or error response needs to be returned.
 			var b [4096]byte
 			r := rs.blobAccess.Get(ctx, digest)
 			if n, err := r.Read(b[:]); err == nil {
@@ -145,11 +173,13 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 					return err
 				}
 			} else if s := status.Convert(err); s.Code() == codes.NotFound {
+				// Key does not exist.
 				conn.Write([]byte("$-1\r\n"))
 			} else {
 				return err
 			}
 		} else if commandUpper == "SET" && parameters == 3 {
+			// SET <key> <value>.
 			key, err := readBulkString(r)
 			if err != nil {
 				return err
@@ -175,7 +205,7 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 				return err
 			}
 			if buf != [...]byte{'\r', '\n'} {
-				return errors.New("String did not end with CR+NL")
+				return errors.New("CR+LF at end of value missing")
 			}
 			conn.Write([]byte("+OK\r\n"))
 		} else {
@@ -184,6 +214,8 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 	}
 }
 
+// HandleConnection processes commands received on a network connection,
+// translating them to calls on the underlying BlobAccess.
 func (rs *RedisServer) HandleConnection(ctx context.Context, conn io.ReadWriteCloser) {
 	if err := rs.handleCommands(ctx, conn); err != nil && err != io.EOF {
 		conn.Write([]byte(fmt.Sprintf("-ERR %s\r\n", err)))
