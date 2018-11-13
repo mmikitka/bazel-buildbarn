@@ -159,15 +159,15 @@ func (os *fileOffsetStore) putRecord(record offsetRecord, minOffset uint64, maxO
 	return record.withAttempt(attempt + 1), true, nil
 }
 
-func (os *fileOffsetStore) Put(digest *util.Digest, minOffset uint64, newOffset uint64) error {
-	record := newOffsetRecord(digest, newOffset)
+func (os *fileOffsetStore) Put(digest *util.Digest, offset uint64, minOffset uint64, maxOffset uint64) error {
+	record := newOffsetRecord(digest, offset)
 	for iteration := 1; ; iteration++ {
 		if iteration > maximumIterations {
 			operationsIterations.WithLabelValues("Put", "TooManyIterations").Observe(float64(iteration))
 			return nil
 		}
 
-		if nextRecord, more, err := os.putRecord(record, minOffset, newOffset); err != nil {
+		if nextRecord, more, err := os.putRecord(record, minOffset, maxOffset); err != nil {
 			operationsIterations.WithLabelValues("Put", "Error").Observe(float64(iteration))
 			return err
 		} else if more {

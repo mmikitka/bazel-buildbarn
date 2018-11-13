@@ -16,20 +16,28 @@ func NewFileDataStore(file ReadWriterAt, size uint64) DataStore {
 	}
 }
 
-func (ds *fileDataStore) Put(b []byte, offset uint64) error {
-	for len(b) > 0 {
+func (ds *fileDataStore) Put(r io.Reader, offset uint64) error {
+	for {
+		// Read data.
 		writeOffset := offset % ds.size
-		writeLength := uint64(len(b))
-		if writeLength > ds.size-writeOffset {
-			writeLength = ds.size - writeOffset
+		var b [65536]byte
+		copyLength := uint64(len(b))
+		if copyLength > ds.size-writeOffset {
+			copyLength = ds.size - writeOffset
 		}
-		if _, err := ds.file.WriteAt(b[:writeLength], int64(writeOffset)); err != nil {
+		n, err := r.Read(b[:])
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
 			return err
 		}
-		b = b[writeLength:]
-		offset += writeLength
+
+		// Write it to storage.
+		if _, err := ds.file.WriteAt(b[:n], int64(writeOffset)); err != nil {
+			return err
+		}
+		offset += uint64(n)
 	}
-	return nil
 }
 
 func (ds *fileDataStore) Get(offset uint64, size int64) io.ReadCloser {
