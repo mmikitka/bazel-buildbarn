@@ -162,9 +162,6 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			if err != nil {
 				return err
 			}
-			if int64(length) != digest.GetSizeBytes() {
-				return errors.New("XXX")
-			}
 
 			l := io.LimitedReader{
 				R: r,
