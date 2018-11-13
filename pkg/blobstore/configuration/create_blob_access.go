@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/circular"
@@ -90,6 +91,11 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 				&redis.Options{
 					Addr: backend.Redis.Endpoint,
 					DB:   int(backend.Redis.Db),
+
+					// TODO(edsch): This shouldn't need to be set.
+					// The Redis library should just use contexts.
+					ReadTimeout:  15 * time.Second,
+					WriteTimeout: 15 * time.Second,
 				}),
 			digestKeyFormat)
 	case *pb.BlobAccessConfiguration_Remote:
