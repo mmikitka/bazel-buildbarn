@@ -61,6 +61,7 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 		backendType = "circular"
 
 		// Open corresponding data files.
+		// TODO(edsch): mmap() some of these files?
 		offsetFile, err := os.OpenFile(filepath.Join(backend.Circular.Directory, "offset"), os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			return nil, err
