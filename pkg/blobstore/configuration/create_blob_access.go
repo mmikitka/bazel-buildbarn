@@ -1,10 +1,14 @@
-package blobstore
+package configuration
 
 import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 
+	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/circular"
 	pb "github.com/EdSchouten/bazel-buildbarn/pkg/proto/blobstore"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/util"
 	"github.com/aws/aws-sdk-go/aws"
@@ -19,7 +23,7 @@ import (
 // CreateBlobAccessObjectsFromConfig creates a pair of BlobAccess
 // objects for the Content Addressable Storage and Action cache based on
 // a configuration file.
-func CreateBlobAccessObjectsFromConfig(configurationFile string) (BlobAccess, BlobAccess, error) {
+func CreateBlobAccessObjectsFromConfig(configurationFile string) (blobstore.BlobAccess, blobstore.BlobAccess, error) {
 	data, err := ioutil.ReadFile(configurationFile)
 	if err != nil {
 		return nil, nil, err
@@ -40,19 +44,44 @@ func CreateBlobAccessObjectsFromConfig(configurationFile string) (BlobAccess, Bl
 	}
 
 	// Stack a mandatory layer on top to protect against data corruption.
-	contentAddressableStorage = NewMetricsBlobAccess(
-		NewMerkleBlobAccess(contentAddressableStorage),
+	contentAddressableStorage = blobstore.NewMetricsBlobAccess(
+		blobstore.NewMerkleBlobAccess(contentAddressableStorage),
 		"cas_merkle")
 	return contentAddressableStorage, actionCache, nil
 }
 
-func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, digestKeyFormat util.DigestKeyFormat) (BlobAccess, error) {
-	var implementation BlobAccess
+func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, digestKeyFormat util.DigestKeyFormat) (blobstore.BlobAccess, error) {
+	var implementation blobstore.BlobAccess
 	var backendType string
 	switch backend := config.Backend.(type) {
+	case *pb.BlobAccessConfiguration_Circular:
+		backendType = "circular"
+
+		// Open corresponding data files.
+		offsetFile, err := os.OpenFile(filepath.Join(backend.Circular.Directory, "offset"), os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			return nil, err
+		}
+		dataFile, err := os.OpenFile(filepath.Join(backend.Circular.Directory, "data"), os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			return nil, err
+		}
+		stateFile, err := os.OpenFile(filepath.Join(backend.Circular.Directory, "state"), os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			return nil, err
+		}
+
+		implementation, err = circular.NewCircularBlobAccess(
+			circular.NewFileOffsetStore(offsetFile, backend.Circular.OffsetFileSizeBytes),
+			circular.NewFileDataStore(dataFile, backend.Circular.DataFileSizeBytes),
+			backend.Circular.DataFileSizeBytes,
+			circular.NewFileStateStore(stateFile))
+		if err != nil {
+			return nil, err
+		}
 	case *pb.BlobAccessConfiguration_Redis:
 		backendType = "redis"
-		implementation = NewRedisBlobAccess(
+		implementation = blobstore.NewRedisBlobAccess(
 			redis.NewClient(
 				&redis.Options{
 					Addr: backend.Redis.Endpoint,
@@ -61,7 +90,7 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 			digestKeyFormat)
 	case *pb.BlobAccessConfiguration_Remote:
 		backendType = "remote"
-		implementation = NewRemoteBlobAccess(backend.Remote.Address, storageType)
+		implementation = blobstore.NewRemoteBlobAccess(backend.Remote.Address, storageType)
 	case *pb.BlobAccessConfiguration_S3:
 		backendType = "s3"
 		cfg := aws.Config{
@@ -81,7 +110,7 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 		// TODO(edsch): Maybe the concurrency can be left alone for this process?
 		uploader := s3manager.NewUploader(session)
 		uploader.Concurrency = 1
-		implementation = NewS3BlobAccess(
+		implementation = blobstore.NewS3BlobAccess(
 			s3,
 			uploader,
 			&backend.S3.Bucket,
@@ -97,9 +126,9 @@ func createBlobAccess(config *pb.BlobAccessConfiguration, storageType string, di
 		if err != nil {
 			return nil, err
 		}
-		implementation = NewSizeDistinguishingBlobAccess(small, large, backend.SizeDistinguishing.CutoffSizeBytes)
+		implementation = blobstore.NewSizeDistinguishingBlobAccess(small, large, backend.SizeDistinguishing.CutoffSizeBytes)
 	default:
 		return nil, errors.New("Configuration did not contain a backend")
 	}
-	return NewMetricsBlobAccess(implementation, fmt.Sprintf("%s_%s", storageType, backendType)), nil
+	return blobstore.NewMetricsBlobAccess(implementation, fmt.Sprintf("%s_%s", storageType, backendType)), nil
 }

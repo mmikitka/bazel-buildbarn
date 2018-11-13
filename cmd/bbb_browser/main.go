@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/ac"
-	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/configuration"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/cas"
 	"github.com/gorilla/mux"
 	"github.com/kballard/go-shellquote"
@@ -24,7 +24,7 @@ func main() {
 	flag.Parse()
 
 	// Storage access.
-	contentAddressableStorageBlobAccess, actionCacheBlobAccess, err := blobstore.CreateBlobAccessObjectsFromConfig(*blobstoreConfig)
+	contentAddressableStorageBlobAccess, actionCacheBlobAccess, err := configuration.CreateBlobAccessObjectsFromConfig(*blobstoreConfig)
 	if err != nil {
 		log.Fatal("Failed to create blob access: ", err)
 	}

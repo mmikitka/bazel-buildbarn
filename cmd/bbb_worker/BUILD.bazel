@@ -9,6 +9,7 @@ go_library(
     deps = [
         "//pkg/ac:go_default_library",
         "//pkg/blobstore:go_default_library",
+        "//pkg/blobstore/configuration:go_default_library",
         "//pkg/builder:go_default_library",
         "//pkg/cas:go_default_library",
         "//pkg/proto/scheduler:go_default_library",

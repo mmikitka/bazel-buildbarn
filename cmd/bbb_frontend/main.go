@@ -10,6 +10,7 @@ import (
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/ac"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/configuration"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/builder"
 	"github.com/EdSchouten/bazel-buildbarn/pkg/cas"
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
@@ -49,7 +50,7 @@ func main() {
 	}()
 
 	// Storage access.
-	contentAddressableStorageBlobAccess, actionCacheBlobAccess, err := blobstore.CreateBlobAccessObjectsFromConfig(*blobstoreConfig)
+	contentAddressableStorageBlobAccess, actionCacheBlobAccess, err := configuration.CreateBlobAccessObjectsFromConfig(*blobstoreConfig)
 	if err != nil {
 		log.Fatal("Failed to create blob access: ", err)
 	}
