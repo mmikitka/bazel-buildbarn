@@ -2,41 +2,26 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net"
-	"os"
 
 	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore"
-	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/circular"
+	"github.com/EdSchouten/bazel-buildbarn/pkg/blobstore/configuration"
 )
 
 func main() {
-	offsetFile, err := os.OpenFile("/data/offset", os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
+	var (
+		blobstoreConfig = flag.String("blobstore-config", "/config/blobstore.conf", "Configuration for blob storage")
+	)
+	flag.Parse()
 
-	dataFile, err := os.OpenFile("/data/data", os.O_RDWR|os.O_CREATE, 0644)
+	// Storage access.
+	blobAccess, _, err := configuration.CreateBlobAccessObjectsFromConfig(*blobstoreConfig, false)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to create blob access: ", err)
 	}
-	dataSize := uint64(1024 * 1024 * 1024)
-
-	stateFile, err := os.OpenFile("/data/state", os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	blobAccess, err := circular.NewCircularBlobAccess(
-		circular.NewFileOffsetStore(offsetFile, 1024*1024),
-		circular.NewFileDataStore(dataFile, dataSize),
-		dataSize,
-		circular.NewFileStateStore(stateFile))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	rs := blobstore.NewRedisServer(blobstore.NewMerkleBlobAccess(blobAccess))
+	rs := blobstore.NewRedisServer(blobAccess)
 
 	ln, err := net.Listen("tcp", ":6379")
 	if err != nil {
