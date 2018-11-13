@@ -160,7 +160,7 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			// success or error response needs to be returned.
 			var b [4096]byte
 			r := rs.blobAccess.Get(ctx, digest)
-			if n, err := r.Read(b[:]); err == nil {
+			if n, err := r.Read(b[:]); err == nil || err == io.EOF {
 				if _, err := conn.Write([]byte(fmt.Sprintf("$%d\r\n", digest.GetSizeBytes()))); err != nil {
 					return fmt.Errorf("Failed to write response size to client: %s", err)
 				}
