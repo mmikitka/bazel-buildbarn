@@ -26,8 +26,8 @@ func newOffsetRecord(digest *util.Digest, offset uint64) offsetRecord {
 
 func (or *offsetRecord) getSlot() uint32 {
 	slot := uint32(2166136261)
-	for _, b := range or[:sha256.Size+8] {
-		slot ^= uint32(b)
+	for i := sha256.Size + 4 + 4; i > 0; i-- {
+		slot ^= uint32(or[i-1])
 		slot *= 16777619
 	}
 	return slot
@@ -38,11 +38,11 @@ func (or *offsetRecord) getAttempt() uint32 {
 }
 
 func (or *offsetRecord) getOffset() uint64 {
-	return binary.LittleEndian.Uint64(or[sha256.Size+8:])
+	return binary.LittleEndian.Uint64(or[sha256.Size+4+4:])
 }
 
 func (or *offsetRecord) digestAndAttemptEqual(other offsetRecord) bool {
-	return bytes.Equal(or[:sha256.Size+8], other[:sha256.Size+8])
+	return bytes.Equal(or[:sha256.Size+4+4], other[:sha256.Size+4+4])
 }
 
 func (or *offsetRecord) offsetInBounds(minOffset uint64, maxOffset uint64) bool {
