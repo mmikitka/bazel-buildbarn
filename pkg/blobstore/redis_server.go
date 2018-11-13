@@ -176,6 +176,7 @@ func (rs *RedisServer) handleCommands(ctx context.Context, conn io.ReadWriter) e
 			} else if s := status.Convert(err); s.Code() == codes.NotFound {
 				// Key does not exist.
 				if _, err := conn.Write([]byte("$-1\r\n")); err != nil {
+					return fmt.Errorf("Failed to write response to client: %s", err)
 				}
 			} else {
 				return fmt.Errorf("Failed to get blob: %s", err)
