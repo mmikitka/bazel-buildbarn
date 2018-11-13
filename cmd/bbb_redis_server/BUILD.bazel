@@ -9,6 +9,7 @@ go_library(
     deps = [
         "//pkg/blobstore:go_default_library",
         "//pkg/blobstore/configuration:go_default_library",
+        "@com_github_prometheus_client_golang//prometheus/promhttp:go_default_library",
     ],
 )
 
