@@ -47,7 +47,7 @@ func (or *offsetRecord) digestAndAttemptEqual(other offsetRecord) bool {
 
 func (or *offsetRecord) offsetInBounds(minOffset uint64, maxOffset uint64) bool {
 	offset := or.getOffset()
-	return offset >= minOffset || offset <= maxOffset
+	return offset >= minOffset && offset <= maxOffset
 }
 
 func (or *offsetRecord) withAttempt(attempt uint32) offsetRecord {
